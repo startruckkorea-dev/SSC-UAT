@@ -1971,7 +1971,7 @@ function ltRenderPage(page) {
     const f = it.fields;
     return '<div class="lt-result-row" onclick="ltInsertRef(\'' + f.Title.replace(/'/g, "\\'") + '\',' + it.id + ')">'
       + '<div class="lt-result-title">' + f.Title + '</div>'
-      + '<div class="lt-result-meta">' + (f.RequesterEmail || '') + (f.Status ? ' · ' + f.Status : '') + (f.VoucherType ? ' · ' + f.VoucherType : '') + (f.RequestDate ? ' · ' + fmtDate(f.RequestDate) : '') + '</div>'
+      + '<div class="lt-result-meta">' + (f.RequesterEmail || '') + (f.Status ? ' · ' + f.Status : '') + (f.VoucherType ? ' · ' + f.VoucherType : '') + (f.BPType ? ' · ' + f.BPType : '') + (f.FAType ? ' · ' + f.FAType : '') + (f.RequestDate ? ' · ' + fmtDate(f.RequestDate) : '') + '</div>'
       + '</div>';
   }).join('');
   pagEl.innerHTML = totalPages <= 1 ? '' :
