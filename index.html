@@ -1919,9 +1919,13 @@ async function ltGetScope(sys) {
   }
   return { scope: 'own' };
 }
+let _ltAllItems = [];
+const LT_PAGE_SIZE = 10;
+let _ltPage = 1;
 async function ltLoadList() {
   const resultsEl = document.getElementById('lt-results');
   resultsEl.innerHTML = '<div class="lt-empty">불러오는 중...</div>';
+  document.getElementById('lt-search-input').value = '';
   try {
     if (!siteId) { const s = await api('/sites/' + SITE_PATH); siteId = s.id; }
     let listId = LT_SYS[ltCurrentSys].list;
@@ -1936,24 +1940,38 @@ async function ltLoadList() {
       items = items.filter(it => (it.fields.VoucherType || '') === scope.typeFilter);
     }
     // scope==='all'이면 필터 없이 전체
-    items = items.sort((a, b) => b.id - a.id).slice(0, 50);
+    _ltAllItems = items.sort((a, b) => b.id - a.id);
     const hintEl = document.querySelector('.lt-hint');
     if (hintEl) {
       hintEl.textContent = scope.scope === 'all' ? '담당 권한으로 전체 티켓이 표시됩니다'
         : scope.scope === 'type' ? scope.typeFilter + ' 담당 권한으로 해당 유형 전체 티켓이 표시됩니다'
         : '본인이 신청한 티켓만 표시됩니다';
     }
-    if (!items.length) { resultsEl.innerHTML = '<div class="lt-empty">표시할 티켓이 없습니다</div>'; return; }
-    resultsEl.innerHTML = items.map(it => {
-      const f = it.fields;
-      return '<div class="lt-result-row" onclick="ltInsertRef(\'' + f.Title.replace(/'/g, "\\'") + '\',' + it.id + ')">'
-        + '<div class="lt-result-title">' + f.Title + '</div>'
-        + '<div class="lt-result-meta">' + (f.RequesterEmail || '') + (f.Status ? ' · ' + f.Status : '') + (f.VoucherType ? ' · ' + f.VoucherType : '') + '</div>'
-        + '</div>';
-    }).join('');
+    ltRenderPage(1);
   } catch (e) {
     resultsEl.innerHTML = '<div class="lt-empty">불러오기 실패: ' + e.message + '</div>';
   }
+}
+function ltRenderPage(page) {
+  const resultsEl = document.getElementById('lt-results');
+  const pagEl = document.getElementById('lt-pagination');
+  const kw = (document.getElementById('lt-search-input').value || '').trim().toLowerCase();
+  const filtered = kw ? _ltAllItems.filter(it => (it.fields.Title || '').toLowerCase().includes(kw)) : _ltAllItems;
+  if (!filtered.length) { resultsEl.innerHTML = '<div class="lt-empty">' + (kw ? '검색 결과가 없습니다' : '표시할 티켓이 없습니다') + '</div>'; pagEl.innerHTML = ''; return; }
+  const totalPages = Math.max(1, Math.ceil(filtered.length / LT_PAGE_SIZE));
+  _ltPage = Math.min(Math.max(1, page), totalPages);
+  const pageItems = filtered.slice((_ltPage - 1) * LT_PAGE_SIZE, _ltPage * LT_PAGE_SIZE);
+  resultsEl.innerHTML = pageItems.map(it => {
+    const f = it.fields;
+    return '<div class="lt-result-row" onclick="ltInsertRef(\'' + f.Title.replace(/'/g, "\\'") + '\',' + it.id + ')">'
+      + '<div class="lt-result-title">' + f.Title + '</div>'
+      + '<div class="lt-result-meta">' + (f.RequesterEmail || '') + (f.Status ? ' · ' + f.Status : '') + (f.VoucherType ? ' · ' + f.VoucherType : '') + (f.RequestDate ? ' · ' + fmtDate(f.RequestDate) : '') + '</div>'
+      + '</div>';
+  }).join('');
+  pagEl.innerHTML = totalPages <= 1 ? '' :
+    '<span style="cursor:pointer" onclick="ltRenderPage(' + (_ltPage - 1) + ')">‹</span>'
+    + '<span>' + _ltPage + ' / ' + totalPages + '</span>'
+    + '<span style="cursor:pointer" onclick="ltRenderPage(' + (_ltPage + 1) + ')">›</span>';
 }
 function ltInsertRef(title, id) {
   const ta = document.getElementById('ssc-detail');
@@ -1989,7 +2007,9 @@ function linkifyTicketRefs(text) {
       <div class="lt-tab" data-sys="BP" onclick="ltSwitchSys('BP')">BP Master</div>
       <div class="lt-tab" data-sys="ACC" onclick="ltSwitchSys('ACC')">ACC Voucher</div>
     </div>
+    <input type="text" id="lt-search-input" placeholder="제목으로 검색..." oninput="ltRenderPage(1)" style="padding:7px 10px;border:1px solid #d0d7de;border-radius:7px;font-size:.8rem;font-family:inherit;margin-bottom:8px">
     <div class="lt-results" id="lt-results"><div class="lt-empty">불러오는 중...</div></div>
+    <div id="lt-pagination" style="display:flex;justify-content:center;align-items:center;gap:10px;margin-top:10px;font-size:.78rem;color:#64748b"></div>
   </div>
 </div>
 
