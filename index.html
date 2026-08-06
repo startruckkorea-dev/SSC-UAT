@@ -2011,7 +2011,6 @@ function ltRenderPage(page) {
     + '<span style="cursor:pointer" onclick="ltRenderPage(' + (_ltPage + 1) + ')">›</span>';
 }
 function ltToggleSelect(key, sys, title, id, checkboxEl) {
-  alert('[디버그] ltToggleSelect 실행됨 - key: ' + key);
   if (_ltSelected.has(key)) { _ltSelected.delete(key); }
   else { _ltSelected.set(key, { sys, title, id }); }
   const row = checkboxEl ? checkboxEl.closest('.lt-result-row') : null;
@@ -2024,7 +2023,6 @@ function ltUpdateSelectedBar() {
   document.getElementById('lt-insert-btn').disabled = cnt === 0;
 }
 function ltInsertSelected() {
-  alert('[디버그] ltInsertSelected 실행됨 - 선택된 개수: ' + _ltSelected.size);
   const ta = document.getElementById('ssc-detail');
   if (ta && _ltSelected.size) {
     let marker = '\n';
@@ -2057,7 +2055,6 @@ const LT_LABEL_MAP = {
 };
 const LT_HIDE_FIELDS = ['@odata.etag','id','RequestID','AttachedFiles','LinesJSON','ApprovalOrder','ApproverEmail','ApproverName','ApproverRole'];
 async function ltShowRemoteDetail(sys, id) {
-  alert('[디버그] ltShowRemoteDetail 실행됨 - sys: ' + sys + ', id: ' + id);
   const modal = document.getElementById('lt-detail-modal');
   const body = document.getElementById('lt-detail-body');
   modal.classList.add('open');
