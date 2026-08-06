@@ -241,11 +241,25 @@ body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #f3f2f1
 .lt-tab.active{background:#0078d4;color:#fff}
 .lt-hint{font-size:.7rem;color:#94a3b8;margin-bottom:8px}
 .lt-results{overflow-y:auto;flex:1;border:1px solid #eef1f5;border-radius:8px}
-.lt-result-row{padding:9px 12px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:.78rem}
+.lt-result-row{padding:9px 12px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:.78rem;display:flex;align-items:flex-start;gap:9px}
 .lt-result-row:hover{background:#f0f6ff}
 .lt-result-row:last-child{border-bottom:none}
+.lt-result-row.selected{background:#eaf3fd}
+.lt-chk{margin-top:2px;flex-shrink:0;cursor:pointer;width:15px;height:15px;accent-color:#0078d4}
+.lt-result-body{flex:1;min-width:0}
 .lt-result-title{font-weight:600;color:#0078d4}
-.lt-result-meta{color:#8a94a6;font-size:.7rem;margin-top:2px}
+.lt-result-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px;color:#8a94a6;font-size:.7rem;margin-top:4px}
+.lt-badge{display:inline-block;border-radius:9px;padding:1.5px 8px;font-size:.66rem;font-weight:700}
+.lt-badge-대기{background:#fff4ce;color:#7d5700}
+.lt-badge-승인완료{background:#dff6dd;color:#107c10}
+.lt-badge-반려{background:#fde7e9;color:#a4262c}
+.lt-badge-철회{background:#f1f5f9;color:#64748b}
+.lt-badge-type{background:#eef1f5;color:#475569;font-weight:600}
+.lt-date{color:#94a3b8}
+.lt-actions{display:flex;justify-content:space-between;align-items:center;margin-top:10px}
+.lt-selected-count{font-size:.74rem;color:#64748b}
+.lt-insert-btn{background:#0078d4;color:#fff;border:none;border-radius:6px;padding:8px 18px;font-size:.8rem;font-weight:600;cursor:pointer;font-family:inherit}
+.lt-insert-btn:disabled{background:#cbd5e1;cursor:not-allowed}
 .lt-empty{padding:20px;text-align:center;color:#94a3b8;font-size:.78rem}
 .ref-link{color:#0078d4;font-weight:600;text-decoration:underline}
 </style>
@@ -1853,6 +1867,8 @@ let _ltCfg = null; // system_config_final.xlsx 캐시 (관련 티켓 링크 권�
 
 function openLinkTicketModal() {
   document.getElementById('link-ticket-modal').classList.add('open');
+  _ltSelected.clear();
+  ltUpdateSelectedBar();
   ltSwitchSys('FA');
 }
 function closeLinkTicketModal() {
@@ -1958,6 +1974,7 @@ async function ltLoadList() {
     resultsEl.innerHTML = '<div class="lt-empty">불러오기 실패: ' + e.message + '</div>';
   }
 }
+let _ltSelected = new Map(); // key: 'SYS:id' -> {sys, title, id}
 function ltRenderPage(page) {
   const resultsEl = document.getElementById('lt-results');
   const pagEl = document.getElementById('lt-pagination');
@@ -1969,27 +1986,58 @@ function ltRenderPage(page) {
   const pageItems = filtered.slice((_ltPage - 1) * LT_PAGE_SIZE, _ltPage * LT_PAGE_SIZE);
   resultsEl.innerHTML = pageItems.map(it => {
     const f = it.fields;
-    return '<div class="lt-result-row" onclick="ltInsertRef(\'' + f.Title.replace(/'/g, "\\'") + '\',' + it.id + ')">'
+    const key = ltCurrentSys + ':' + it.id;
+    const checked = _ltSelected.has(key) ? 'checked' : '';
+    const rowSel = _ltSelected.has(key) ? ' selected' : '';
+    const typeVal = f.VoucherType || f.BPType || f.FAType || '';
+    const statusBadge = f.Status ? '<span class="lt-badge lt-badge-' + f.Status + '">' + f.Status + '</span>' : '';
+    const typeBadge = typeVal ? '<span class="lt-badge lt-badge-type">' + typeVal + '</span>' : '';
+    const dateStr = f.RequestDate ? '<span class="lt-date">📅 ' + fmtDate(f.RequestDate) + '</span>' : '';
+    return '<div class="lt-result-row' + rowSel + '" data-key="' + key + '">'
+      + '<input type="checkbox" class="lt-chk" ' + checked + ' onclick="event.stopPropagation();ltToggleSelect(\'' + key + '\',\'' + ltCurrentSys + '\',\'' + f.Title.replace(/'/g, "\\'") + '\',' + it.id + ',this)">'
+      + '<div class="lt-result-body" onclick="ltToggleRow(\'' + key + '\',\'' + ltCurrentSys + '\',\'' + f.Title.replace(/'/g, "\\'") + '\',' + it.id + ')">'
       + '<div class="lt-result-title">' + f.Title + '</div>'
-      + '<div class="lt-result-meta">' + (f.RequesterEmail || '') + (f.Status ? ' · ' + f.Status : '') + (f.VoucherType ? ' · ' + f.VoucherType : '') + (f.BPType ? ' · ' + f.BPType : '') + (f.FAType ? ' · ' + f.FAType : '') + (f.RequestDate ? ' · ' + fmtDate(f.RequestDate) : '') + '</div>'
-      + '</div>';
+      + '<div class="lt-result-meta">' + (f.RequesterEmail || '') + statusBadge + typeBadge + dateStr + '</div>'
+      + '</div></div>';
   }).join('');
   pagEl.innerHTML = totalPages <= 1 ? '' :
     '<span style="cursor:pointer" onclick="ltRenderPage(' + (_ltPage - 1) + ')">‹</span>'
     + '<span>' + _ltPage + ' / ' + totalPages + '</span>'
     + '<span style="cursor:pointer" onclick="ltRenderPage(' + (_ltPage + 1) + ')">›</span>';
 }
-function ltInsertRef(title, id) {
+function ltToggleSelect(key, sys, title, id, checkboxEl) {
+  if (_ltSelected.has(key)) { _ltSelected.delete(key); }
+  else { _ltSelected.set(key, { sys, title, id }); }
+  const row = checkboxEl ? checkboxEl.closest('.lt-result-row') : null;
+  if (row) row.classList.toggle('selected', _ltSelected.has(key));
+  ltUpdateSelectedBar();
+}
+function ltToggleRow(key, sys, title, id) {
+  const row = document.querySelector('.lt-result-row[data-key="' + key + '"]');
+  const chk = row ? row.querySelector('.lt-chk') : null;
+  if (chk) chk.checked = !chk.checked;
+  ltToggleSelect(key, sys, title, id, chk);
+}
+function ltUpdateSelectedBar() {
+  const cnt = _ltSelected.size;
+  document.getElementById('lt-selected-count').textContent = cnt + '개 선택됨';
+  document.getElementById('lt-insert-btn').disabled = cnt === 0;
+}
+function ltInsertSelected() {
   const ta = document.getElementById('ssc-detail');
-  if (ta) {
-    const url = LT_SYS[ltCurrentSys].domain + '?openId=' + id;
-    const marker = '\n[' + title + '] ' + url + '\n';
+  if (ta && _ltSelected.size) {
+    let marker = '\n';
+    _ltSelected.forEach(({ sys, title, id }) => {
+      const url = LT_SYS[sys].domain + '?openId=' + id;
+      marker += '[' + title + '] ' + url + '\n';
+    });
     const start = ta.selectionStart ?? ta.value.length;
     const end = ta.selectionEnd ?? ta.value.length;
     ta.value = ta.value.slice(0, start) + marker + ta.value.slice(end);
     ta.focus();
     ta.selectionStart = ta.selectionEnd = start + marker.length;
   }
+  _ltSelected.clear();
   closeLinkTicketModal();
 }
 // 상세보기에 표시되는 텍스트에서 [FA-...ID-n]/[BP-...ID-n]/[ACC-...ID-n] + URL 패턴을 클릭 가능한 링크로 변환
@@ -2016,6 +2064,10 @@ function linkifyTicketRefs(text) {
     <input type="text" id="lt-search-input" placeholder="제목으로 검색..." oninput="ltRenderPage(1)" style="padding:7px 10px;border:1px solid #d0d7de;border-radius:7px;font-size:.8rem;font-family:inherit;margin-bottom:8px">
     <div class="lt-results" id="lt-results"><div class="lt-empty">불러오는 중...</div></div>
     <div id="lt-pagination" style="display:flex;justify-content:center;align-items:center;gap:10px;margin-top:10px;font-size:.78rem;color:#64748b"></div>
+    <div class="lt-actions">
+      <span class="lt-selected-count" id="lt-selected-count">0개 선택됨</span>
+      <button type="button" class="lt-insert-btn" id="lt-insert-btn" onclick="ltInsertSelected()" disabled>선택 항목 삽입</button>
+    </div>
   </div>
 </div>
 
