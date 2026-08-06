@@ -261,7 +261,11 @@ body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #f3f2f1
 .lt-insert-btn{background:#0078d4;color:#fff;border:none;border-radius:6px;padding:8px 18px;font-size:.8rem;font-weight:600;cursor:pointer;font-family:inherit}
 .lt-insert-btn:disabled{background:#cbd5e1;cursor:not-allowed}
 .lt-empty{padding:20px;text-align:center;color:#94a3b8;font-size:.78rem}
-.ref-link{color:#0078d4;font-weight:600;text-decoration:underline}
+.ref-link{display:inline-flex;align-items:center;gap:3px;color:#0078d4;font-weight:600;background:#eff6ff;border:1px solid #cfe4fc;border-radius:6px;padding:2px 9px;cursor:pointer;font-size:.85em}
+.ref-link:hover{background:#e0eefe}
+.lt-detail-row{padding:8px 0;border-bottom:1px solid #f1f5f9}
+.lt-detail-label{font-size:.68rem;color:#94a3b8;margin-bottom:3px}
+.lt-detail-val{font-size:.82rem;color:#1f2328}
 </style>
 </head>
 <body>
@@ -2028,8 +2032,7 @@ function ltInsertSelected() {
   if (ta && _ltSelected.size) {
     let marker = '\n';
     _ltSelected.forEach(({ sys, title, id }) => {
-      const url = LT_SYS[sys].domain + '?openId=' + id;
-      marker += '[' + title + '] ' + url + '\n';
+      marker += '[' + title + ':' + sys + ':' + id + ']\n';
     });
     const start = ta.selectionStart ?? ta.value.length;
     const end = ta.selectionEnd ?? ta.value.length;
@@ -2040,13 +2043,50 @@ function ltInsertSelected() {
   _ltSelected.clear();
   closeLinkTicketModal();
 }
-// 상세보기에 표시되는 텍스트에서 [FA-...ID-n]/[BP-...ID-n]/[ACC-...ID-n] + URL 패턴을 클릭 가능한 링크로 변환
+// 상세보기에 표시되는 텍스트에서 [제목:SYS:id] 패턴을 찾아 - 다른 사이트로 이동하는 링크가 아니라
+// SSC-UAT 안에서 바로 상세팝업을 여는 버튼으로 변환
 function linkifyTicketRefs(text) {
   if (!text) return text;
   const esc = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return esc.replace(/\[((?:FA|BP|ACC)-[^\]]+)\]\s*(https?:\/\/\S+)/g, (m, label, url) => {
-    return '<a class="ref-link" href="' + url + '" target="_blank" rel="noopener">' + label + ' ↗</a>';
+  return esc.replace(/\[([^:\]]+):(FA|BP|ACC):(\d+)\]/g, (m, label, sys, id) => {
+    return '<span class="ref-link" onclick="ltShowRemoteDetail(\'' + sys + '\',' + id + ')">🔗 ' + label + '</span>';
   });
+}
+// SSC-UAT 밖으로 이동하지 않고, 그 자리에서 FA/BP/ACC 티켓 상세를 직접 조회해서 팝업으로 보여줌
+const LT_LABEL_MAP = {
+  Title:'제목', RequesterEmail:'신청자', Status:'상태', RequestDate:'신청일',
+  VoucherType:'Voucher Type', BPType:'BP Type', SubCategory:'세부 구분', FAType:'FA Type',
+  Description:'상세 내용', BPCode:'BP Code', BPName:'BP Name', Amount:'금액',
+};
+const LT_HIDE_FIELDS = ['@odata.etag','id','RequestID','AttachedFiles','LinesJSON','ApprovalOrder','ApproverEmail','ApproverName','ApproverRole'];
+async function ltShowRemoteDetail(sys, id) {
+  const modal = document.getElementById('lt-detail-modal');
+  const body = document.getElementById('lt-detail-body');
+  modal.classList.add('open');
+  body.innerHTML = '<div class="lt-empty">불러오는 중...</div>';
+  try {
+    if (!siteId) { const s = await api('/sites/' + SITE_PATH); siteId = s.id; }
+    let listId = LT_SYS[sys].list;
+    if (sys === 'ACC') listId = await ltGetAccListId();
+    const item = await api('/sites/' + siteId + '/lists/' + listId + '/items/' + id + '?$expand=fields');
+    const f = item.fields;
+    const rows = [];
+    ['Title','RequesterEmail','Status','RequestDate','VoucherType','BPType','SubCategory','FAType','BPCode','BPName','Amount'].forEach(k => {
+      if (f[k] !== undefined && f[k] !== null && f[k] !== '') {
+        const val = k === 'RequestDate' ? fmtDate(f[k]) : f[k];
+        rows.push('<div class="lt-detail-row"><div class="lt-detail-label">' + (LT_LABEL_MAP[k] || k) + '</div><div class="lt-detail-val">' + val + '</div></div>');
+      }
+    });
+    if (f.Description) {
+      rows.push('<div class="lt-detail-row"><div class="lt-detail-label">상세 내용</div><div class="lt-detail-val" style="white-space:pre-wrap">' + f.Description + '</div></div>');
+    }
+    body.innerHTML = rows.join('') || '<div class="lt-empty">표시할 정보가 없습니다</div>';
+  } catch (e) {
+    body.innerHTML = '<div class="lt-empty">불러오기 실패: ' + e.message + '</div>';
+  }
+}
+function ltCloseDetailModal() {
+  document.getElementById('lt-detail-modal').classList.remove('open');
 }
 </script>
 <div id="link-ticket-modal">
@@ -2068,6 +2108,16 @@ function linkifyTicketRefs(text) {
       <span class="lt-selected-count" id="lt-selected-count">0개 선택됨</span>
       <button type="button" class="lt-insert-btn" id="lt-insert-btn" onclick="ltInsertSelected()" disabled>선택 항목 삽입</button>
     </div>
+  </div>
+</div>
+
+<div id="lt-detail-modal" onclick="if(event.target===this) ltCloseDetailModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:24px 26px;width:460px;max-width:92vw;max-height:80vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div style="font-size:.92rem;font-weight:700;color:#101B34">관련 티켓 상세</div>
+      <div style="cursor:pointer;color:#94a3b8;font-size:1.1rem" onclick="ltCloseDetailModal()">✕</div>
+    </div>
+    <div id="lt-detail-body"></div>
   </div>
 </div>
 
