@@ -231,17 +231,26 @@ body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #f3f2f1
   .assignee-grid { grid-template-columns: 1fr; }
   .appr-grid { grid-template-columns: 1fr; }
 }
-.link-ticket-btn{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;font-weight:600;color:#fff;background:#0078d4;border:none;border-radius:6px;padding:7px 14px;cursor:pointer;font-family:inherit;box-shadow:0 1px 4px rgba(0,120,212,.25);transition:background .15s}
-.link-ticket-btn:hover{background:#106ebe}
+.link-ticket-btn{display:inline-flex;align-items:center;gap:5px;font-size:.75rem;font-weight:600;color:#0078d4;background:#fff;border:1px solid #cfe0f5;border-radius:6px;padding:5px 11px;cursor:pointer;font-family:inherit;transition:background .15s,border-color .15s}
+.link-ticket-btn:hover{background:#f2f8ff;border-color:#0078d4}
+.lt-attached{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.lt-attached:empty{display:none}
+.lt-chip{display:inline-flex;align-items:center;gap:6px;background:#eff6ff;border:1px solid #cfe4fc;border-radius:14px;padding:3px 5px 3px 9px;font-size:.75rem;color:#0f4c81}
+.lt-chip-sys{font-size:.63rem;font-weight:700;background:#0078d4;color:#fff;border-radius:4px;padding:1px 5px;letter-spacing:.02em}
+.lt-chip-name{cursor:pointer;font-weight:600}
+.lt-chip-name:hover{text-decoration:underline}
+.lt-chip-x{cursor:pointer;color:#94a3b8;font-size:.85rem;line-height:1;padding:2px 4px}
+.lt-chip-x:hover{color:#dc2626}
+.lt-open-hint{font-size:.68rem;color:#0078d4;font-weight:600;white-space:nowrap;margin-left:8px;opacity:0;transition:opacity .12s}
+.lt-result-row:hover .lt-open-hint{opacity:1}
 #link-ticket-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:900;align-items:center;justify-content:center}
 #link-ticket-modal.open{display:flex}
-#lt-detail-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center}
-#lt-detail-modal.open{display:flex}
 .lt-card{background:#fff;border-radius:12px;padding:22px 24px;width:520px;max-width:92vw;max-height:78vh;display:flex;flex-direction:column}
 .lt-tabs{display:flex;gap:6px;margin-bottom:12px}
 .lt-tab{flex:1;text-align:center;padding:7px 0;border-radius:7px;font-size:.78rem;font-weight:600;cursor:pointer;background:#f1f5f9;color:#64748b}
 .lt-tab.active{background:#0078d4;color:#fff}
-.lt-hint{font-size:.7rem;color:#94a3b8;margin-bottom:8px}
+.lt-hint{font-size:.7rem;color:#94a3b8;margin-bottom:2px}
+.lt-hint2{font-size:.68rem;color:#b6c0cc;margin-bottom:8px}
 .lt-results{overflow-y:auto;flex:1;border:1px solid #eef1f5;border-radius:8px}
 .lt-result-row{padding:9px 12px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:.78rem;display:flex;align-items:flex-start;gap:9px}
 .lt-result-row:hover{background:#f0f6ff}
@@ -265,9 +274,6 @@ body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #f3f2f1
 .lt-empty{padding:20px;text-align:center;color:#94a3b8;font-size:.78rem}
 .ref-link{display:inline-flex;align-items:center;gap:3px;color:#0078d4;font-weight:600;background:#eff6ff;border:1px solid #cfe4fc;border-radius:6px;padding:2px 9px;cursor:pointer;font-size:.85em}
 .ref-link:hover{background:#e0eefe}
-.lt-detail-row{padding:8px 0;border-bottom:1px solid #f1f5f9}
-.lt-detail-label{font-size:.68rem;color:#94a3b8;margin-bottom:3px}
-.lt-detail-val{font-size:.82rem;color:#1f2328}
 </style>
 </head>
 <body>
@@ -432,9 +438,10 @@ body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #f3f2f1
         <div class="form-group">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <label style="margin:0">상세 내용 <span class="req">*</span></label>
-            <button type="button" class="link-ticket-btn" onclick="openLinkTicketModal()">🔗 관련 티켓 링크 추가</button>
+            <button type="button" class="link-ticket-btn" onclick="openLinkTicketModal()">🔗 관련 티켓(FA, BP, ACC) 링크 추가</button>
           </div>
           <textarea id="ssc-detail" style="min-height:110px" placeholder="요청 내용을 구체적으로 기재해주세요. 예) 처리 요청 사항, 관련 문서 번호, 특이사항 등"></textarea>
+          <div class="lt-attached" id="lt-attached"></div>
         </div>
       </div>
 
@@ -1031,6 +1038,7 @@ function resetForm() {
   ['ssc-title','ssc-detail','ssc-posting-date','ssc-doc-date','ssc-reverse-date'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.value='';
   });
+  if (typeof _ltAttached !== 'undefined') { _ltAttached.clear(); ltRenderAttached(); }
   renderFiles();
 }
 
@@ -1079,7 +1087,7 @@ async function submitTicket() {
       PostingDate:  postDate,
       DocDate:      docDate,
       ReverseDate:  document.getElementById('ssc-reverse-date').value || null,
-      Detail:       '<div>'+detail+'</div>',
+      Detail:       '<div>'+detail+ltRefBlock()+'</div>',
       PKFAssignees: selectedPKF.map(p=>p.email).join('; '),
     };
     for (const [key,val] of Object.entries(extraFields)) {
@@ -1931,7 +1939,8 @@ let _ltCfg = null; // system_config_final.xlsx 캐시 (관련 티켓 링크 권�
 
 function openLinkTicketModal() {
   document.getElementById('link-ticket-modal').classList.add('open');
-  _ltSelected.clear();
+  // 이미 첨부해 둔 티켓은 체크된 상태로 복원 — 모달이 "첨부 목록 편집기" 역할을 하도록
+  _ltSelected = new Map(_ltAttached);
   ltUpdateSelectedBar();
   ltSwitchSys('FA');
 }
@@ -2038,7 +2047,8 @@ async function ltLoadList() {
     resultsEl.innerHTML = '<div class="lt-empty">불러오기 실패: ' + e.message + '</div>';
   }
 }
-let _ltSelected = new Map(); // key: 'SYS:id' -> {sys, title, id}
+let _ltSelected = new Map(); // key: 'SYS:id' -> {sys, title, id}  (모달 안에서 체크 중인 항목)
+let _ltAttached = new Map(); // key: 'SYS:id' -> {sys, title, id}  (실제로 폼에 첨부 확정된 항목)
 function ltRenderPage(page) {
   const resultsEl = document.getElementById('lt-results');
   const pagEl = document.getElementById('lt-pagination');
@@ -2061,7 +2071,7 @@ function ltRenderPage(page) {
     return '<div class="lt-result-row' + rowSel + '" data-key="' + key + '">'
       + '<input type="checkbox" class="lt-chk" ' + checked + ' onclick="event.stopPropagation();ltToggleSelect(\'' + key + '\',\'' + ltCurrentSys + '\',\'' + f.Title.replace(/'/g, "\\'") + '\',' + it.id + ',this)">'
       + '<div class="lt-result-body" onclick="ltOpenRealDetail(\'' + ltCurrentSys + '\',' + it.id + ')" title="클릭하면 실제 시스템 상세보기가 새 탭에서 열립니다">'
-      + '<div class="lt-result-title">' + f.Title + '</div>'
+      + '<div class="lt-result-title">' + f.Title + '<span class="lt-open-hint">상세보기 ↗</span></div>'
       + '<div class="lt-result-meta">' + (f.RequesterEmail || '') + statusBadge + typeBadge + dateStr + '</div>'
       + '</div></div>';
   }).join('');
@@ -2080,107 +2090,74 @@ function ltToggleSelect(key, sys, title, id, checkboxEl) {
 function ltUpdateSelectedBar() {
   const cnt = _ltSelected.size;
   document.getElementById('lt-selected-count').textContent = cnt + '개 선택됨';
-  document.getElementById('lt-insert-btn').disabled = cnt === 0;
+  // 이미 첨부된 게 있으면 0개 선택 상태로도 확정(=전체 해제)할 수 있어야 하므로 버튼을 살려둔다
+  document.getElementById('lt-insert-btn').disabled = (cnt === 0 && _ltAttached.size === 0);
 }
+// 선택한 티켓을 "첨부 목록"에 반영 — 상세 내용 텍스트박스에 [제목:SYS:id] 원본 토큰을 직접 박아넣지 않고,
+// 텍스트박스 아래 칩(chip) 형태로 보여준다. 토큰은 제출 시점에만 Detail 뒤에 자동으로 덧붙임.
 function ltInsertSelected() {
-  const ta = document.getElementById('ssc-detail');
-  if (ta && _ltSelected.size) {
-    let marker = '\n';
-    _ltSelected.forEach(({ sys, title, id }) => {
-      marker += '[' + title + ':' + sys + ':' + id + ']\n';
-    });
-    const start = ta.selectionStart ?? ta.value.length;
-    const end = ta.selectionEnd ?? ta.value.length;
-    ta.value = ta.value.slice(0, start) + marker + ta.value.slice(end);
-    ta.focus();
-    ta.selectionStart = ta.selectionEnd = start + marker.length;
-  }
-  _ltSelected.clear();
+  _ltAttached = new Map(_ltSelected);
+  ltRenderAttached();
   closeLinkTicketModal();
+}
+function ltRenderAttached() {
+  const el = document.getElementById('lt-attached');
+  if (!el) return;
+  if (!_ltAttached.size) { el.innerHTML = ''; return; }
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  el.innerHTML = [..._ltAttached.entries()].map(([key, { sys, title, id }]) =>
+    '<span class="lt-chip">'
+    + '<span class="lt-chip-sys">' + sys + '</span>'
+    + '<span class="lt-chip-name" onclick="ltOpenRealDetail(\'' + sys + '\',' + id + ')" title="클릭하면 ' + sys + ' 시스템의 실제 상세보기가 새 탭에서 열립니다">' + esc(title) + ' ↗</span>'
+    + '<span class="lt-chip-x" onclick="ltRemoveAttached(\'' + key + '\')" title="첨부 해제">✕</span>'
+    + '</span>').join('');
+}
+function ltRemoveAttached(key) {
+  _ltAttached.delete(key);
+  ltRenderAttached();
+}
+// 제출 시 Detail 본문 뒤에 붙일 참조 토큰 블록 생성 (첨부가 없으면 빈 문자열)
+function ltRefBlock() {
+  if (!_ltAttached.size) return '';
+  const lines = [..._ltAttached.values()].map(({ sys, title, id }) => '[' + title + ':' + sys + ':' + id + ']');
+  return '\n\n[관련 티켓]\n' + lines.join('\n');
 }
 // 상세보기에 표시되는 텍스트에서 [제목:SYS:id] 패턴을 찾아 - 다른 사이트로 이동하는 링크가 아니라
 // SSC-UAT 안에서 바로 상세팝업을 여는 버튼으로 변환
 function linkifyTicketRefs(text) {
   if (!text) return text;
-  const esc = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // SharePoint 리치텍스트로 저장되면서 <div>...</div>, <br> 래퍼가 붙는다.
+  // 이걸 그대로 이스케이프하면 화면에 <div>가 글자로 보이므로 먼저 개행으로 환원한 뒤 이스케이프한다.
+  // (표시하는 쪽이 white-space:pre-wrap 이라 개행이 그대로 살아남음)
+  const plain = String(text)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(div|p)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&quot;/gi, '"').replace(/&#39;/g, "'").replace(/&amp;/gi, '&')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  const esc = plain.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return esc.replace(/\[([^:\]]+):(FA|BP|ACC):(\d+)\]/g, (m, label, sys, id) => {
     const url = LT_SYS[sys].domain + '?openId=' + id;
-    return '<a class="ref-link" href="' + url + '" target="_blank" rel="noopener">🔗 ' + label + ' ↗</a>';
+    return '<a class="ref-link" href="' + url + '" target="_blank" rel="noopener" title="' + sys + ' 시스템의 실제 상세보기가 새 탭에서 열립니다">🔗 ' + label + ' ↗</a>';
   });
 }
-// (검색 결과 목록에서 선택 전 미리보기 용도로는 ltShowRemoteDetail을 계속 사용함 — SSC-UAT 밖으로 이동하지 않고 그 자리에서 조회)
-const LT_LABEL_MAP = {
-  Title:'제목', RequesterEmail:'신청자', Status:'상태', RequestDate:'신청일',
-  VoucherType:'Voucher Type', BPType:'BP Type', SubCategory:'세부 구분', FAType:'FA Type',
-  Description:'상세 내용', BPCode:'BP Code', BPName:'BP Name', Amount:'금액',
-};
-const LT_HIDE_FIELDS = ['@odata.etag','id','RequestID','AttachedFiles','LinesJSON','ApprovalOrder','ApproverEmail','ApproverName','ApproverRole'];
 // 검색 결과 클릭 시 SSC-UAT의 간이 미리보기 대신 실제 FA/BP/ACC 시스템 상세보기를 새 탭에서 바로 열기
 // (해당 시스템은 이미 openId 단독보기 모드가 구현되어 있어, 그 상세팝업만 뜨고 다른 메뉴로는 못 감)
 function ltOpenRealDetail(sys, id) {
   const url = LT_SYS[sys].domain + '?openId=' + id;
   window.open(url, '_blank');
 }
-async function ltShowRemoteDetail(sys, id) {
-  const modal = document.getElementById('lt-detail-modal');
-  const body = document.getElementById('lt-detail-body');
-  modal.classList.add('open');
-  body.innerHTML = '<div class="lt-empty">불러오는 중...</div>';
-  try {
-    if (!siteId) { const s = await api('/sites/' + SITE_PATH); siteId = s.id; }
-    let listId = LT_SYS[sys].list;
-    if (sys === 'ACC') listId = await ltGetAccListId();
-    const item = await api('/sites/' + siteId + '/lists/' + listId + '/items/' + id + '?$expand=fields');
-    const f = item.fields;
-    const rows = [];
-    const dateVal = f.RequestDate || f.SubmittedDate;
-    if (dateVal) rows.push('<div class="lt-detail-row"><div class="lt-detail-label">신청일</div><div class="lt-detail-val">' + fmtDate(dateVal) + '</div></div>');
-    const KNOWN = ['Title','RequesterEmail','Status','VoucherType','BPType','SubCategory','FAType','BPCode','BPName','Amount'];
-    KNOWN.forEach(k => {
-      if (f[k] !== undefined && f[k] !== null && f[k] !== '') {
-        rows.push('<div class="lt-detail-row"><div class="lt-detail-label">' + (LT_LABEL_MAP[k] || k) + '</div><div class="lt-detail-val">' + f[k] + '</div></div>');
-      }
-    });
-    // 시스템/타입마다 상세 내용 필드명이 다름(Description/Purpose/Reason 등) — 기술적 필드를 제외한 나머지 텍스트 필드는 전부 표시
-    const EXCLUDE = new Set([...KNOWN, 'RequestDate','SubmittedDate','id','@odata.etag','ContentType','Created','Modified',
-      'AuthorLookupId','EditorLookupId','_UIVersionString','Attachments','Edit','LinkTitleNoMenu','LinkTitle',
-      'ItemChildCount','FolderChildCount','_ComplianceFlags','_ComplianceTag','_ComplianceTagWrittenTime',
-      '_ComplianceTagUserId','AppAuthorLookupId','AppEditorLookupId','AttachedFiles','RequestID']);
-    Object.keys(f).forEach(k => {
-      if (EXCLUDE.has(k) || k.startsWith('_') || k.endsWith('LookupId')) return;
-      const v = f[k];
-      if (v === undefined || v === null || v === '') return;
-      const sv = String(v);
-      if (sv.startsWith('[') || sv.startsWith('{')) return; // JSON 블록(AssetList 등)은 너무 기술적이라 생략
-      const clean = sv.replace(/<[^>]+>/g, '').trim(); // SharePoint 리치텍스트의 <div> 래퍼 제거
-      if (!clean) return;
-      rows.push('<div class="lt-detail-row"><div class="lt-detail-label">' + k + '</div><div class="lt-detail-val" style="white-space:pre-wrap">' + clean + '</div></div>');
-    });
-    // 첨부파일 (파일명|URL;파일명2|URL2 형식 파싱)
-    if (f.AttachedFiles) {
-      const clean = String(f.AttachedFiles).replace(/<[^>]+>/g, '').trim();
-      const files = clean.split(';').map(s => s.trim()).filter(Boolean).map(pair => {
-        const [name, url] = pair.split('|');
-        return url ? '<a href="' + url.trim() + '" target="_blank" rel="noopener" style="display:block;color:#0078d4;font-size:.8rem;margin-bottom:4px">📎 ' + (name || url).trim() + '</a>' : '';
-      }).join('');
-      if (files) rows.push('<div class="lt-detail-row"><div class="lt-detail-label">첨부파일</div><div class="lt-detail-val">' + files + '</div></div>');
-    }
-    body.innerHTML = rows.join('') || '<div class="lt-empty">표시할 정보가 없습니다</div>';
-  } catch (e) {
-    body.innerHTML = '<div class="lt-empty">불러오기 실패: ' + e.message + '</div>';
-  }
-}
-function ltCloseDetailModal() {
-  document.getElementById('lt-detail-modal').classList.remove('open');
-}
 </script>
 <div id="link-ticket-modal" onclick="if(event.target===this) closeLinkTicketModal()">
   <div class="lt-card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <div style="font-size:.95rem;font-weight:700;color:#101B34">🔗 관련 티켓 링크 추가</div>
+      <div style="font-size:.95rem;font-weight:700;color:#101B34">🔗 관련 티켓(FA, BP, ACC) 링크 추가</div>
       <div style="cursor:pointer;color:#94a3b8;font-size:1.1rem" onclick="closeLinkTicketModal()">✕</div>
     </div>
-    <div class="lt-hint">본인이 신청한 FA / BP / ACC Voucher 티켓만 표시됩니다</div>
+    <div class="lt-hint">본인이 신청한 티켓만 표시됩니다</div>
+    <div class="lt-hint2">체크박스로 선택해 첨부하고, 제목을 클릭하면 해당 시스템의 실제 상세보기가 새 탭에서 열립니다</div>
     <div class="lt-tabs">
       <div class="lt-tab active" data-sys="FA" onclick="ltSwitchSys('FA')">FA Registration</div>
       <div class="lt-tab" data-sys="BP" onclick="ltSwitchSys('BP')">BP Master</div>
@@ -2191,18 +2168,8 @@ function ltCloseDetailModal() {
     <div id="lt-pagination" style="display:flex;justify-content:center;align-items:center;gap:10px;margin-top:10px;font-size:.78rem;color:#64748b"></div>
     <div class="lt-actions">
       <span class="lt-selected-count" id="lt-selected-count">0개 선택됨</span>
-      <button type="button" class="lt-insert-btn" id="lt-insert-btn" onclick="ltInsertSelected()" disabled>선택 항목 삽입</button>
+      <button type="button" class="lt-insert-btn" id="lt-insert-btn" onclick="ltInsertSelected()" disabled>선택 항목 첨부</button>
     </div>
-  </div>
-</div>
-
-<div id="lt-detail-modal" onclick="if(event.target===this) ltCloseDetailModal()" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
-  <div style="background:#fff;border-radius:12px;padding:24px 26px;width:460px;max-width:92vw;max-height:80vh;overflow-y:auto">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <div style="font-size:.92rem;font-weight:700;color:#101B34">관련 티켓 상세</div>
-      <div style="cursor:pointer;color:#94a3b8;font-size:1.1rem" onclick="ltCloseDetailModal()">✕</div>
-    </div>
-    <div id="lt-detail-body"></div>
   </div>
 </div>
 
