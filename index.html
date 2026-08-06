@@ -231,6 +231,23 @@ body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #f3f2f1
   .assignee-grid { grid-template-columns: 1fr; }
   .appr-grid { grid-template-columns: 1fr; }
 }
+.link-ticket-btn{display:inline-flex;align-items:center;gap:4px;font-size:.72rem;color:#0078d4;background:#eff6ff;border:1px solid #cfe4fc;border-radius:6px;padding:4px 10px;cursor:pointer;margin-top:6px;font-family:inherit}
+.link-ticket-btn:hover{background:#e0eefe}
+#link-ticket-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:900;align-items:center;justify-content:center}
+#link-ticket-modal.open{display:flex}
+.lt-card{background:#fff;border-radius:12px;padding:22px 24px;width:520px;max-width:92vw;max-height:78vh;display:flex;flex-direction:column}
+.lt-tabs{display:flex;gap:6px;margin-bottom:12px}
+.lt-tab{flex:1;text-align:center;padding:7px 0;border-radius:7px;font-size:.78rem;font-weight:600;cursor:pointer;background:#f1f5f9;color:#64748b}
+.lt-tab.active{background:#0078d4;color:#fff}
+.lt-hint{font-size:.7rem;color:#94a3b8;margin-bottom:8px}
+.lt-results{overflow-y:auto;flex:1;border:1px solid #eef1f5;border-radius:8px}
+.lt-result-row{padding:9px 12px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:.78rem}
+.lt-result-row:hover{background:#f0f6ff}
+.lt-result-row:last-child{border-bottom:none}
+.lt-result-title{font-weight:600;color:#0078d4}
+.lt-result-meta{color:#8a94a6;font-size:.7rem;margin-top:2px}
+.lt-empty{padding:20px;text-align:center;color:#94a3b8;font-size:.78rem}
+.ref-link{color:#0078d4;font-weight:600;text-decoration:underline}
 </style>
 </head>
 <body>
@@ -395,6 +412,7 @@ body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #f3f2f1
         <div class="form-group">
           <label>상세 내용 <span class="req">*</span></label>
           <textarea id="ssc-detail" style="min-height:110px" placeholder="요청 내용을 구체적으로 기재해주세요. 예) 처리 요청 사항, 관련 문서 번호, 특이사항 등"></textarea>
+          <button type="button" class="link-ticket-btn" onclick="openLinkTicketModal()">🔗 관련 티켓 링크 추가</button>
         </div>
       </div>
 
@@ -1361,7 +1379,7 @@ async function showDetail(reqId, fromTab) {
       row('Posting Date', fmtDateOnly(f.PostingDate)) +
       row('Doc Date', fmtDateOnly(f.DocDate)) +
       row('Reverse Date', fmtDateOnly(f.ReverseDate)||'-') +
-      row('상세 내용', f.Detail, true) +
+      row('상세 내용', linkifyTicketRefs(f.Detail), true) +
       (()=>{
         const pkfNames = stripHtml(f.PKFAssignees||'').split(';').map(p=>{const parts=p.trim().split('||');return parts[0]?(parts[0].trim()+(parts[1]?' ('+parts[1].trim()+')':'')):p.trim();}).filter(Boolean).join('\n')||'-';
         const _editableStatus = ['대기','처리중'];
@@ -1817,7 +1835,105 @@ function showLoginErr(msg){ const el=document.getElementById('login-err'); el.st
   if(accounts.length){ msal.setActiveAccount(accounts[0]); await boot(accounts[0]); return; }
   btn.disabled=false; btn.textContent='Hyosung M365 계정으로 로그인';
 })();
+
+// ══════════════════════════════════════════════════════════
+// [SSC-UAT 전용 테스트 기능] 관련 티켓 링크 — 본인이 신청한 FA/BP/ACC Voucher 티켓만 검색해서 참조 삽입
+// ⚠️ 이 기능은 UAT 테스트 목적으로만 추가된 것으로, 프로덕션(shared-sc)에는 반영하지 않음
+// ══════════════════════════════════════════════════════════
+const LT_SYS = {
+  FA:  { domain: 'https://fa.startruckkorea.com/',         list: 'FA_Requests' },
+  BP:  { domain: 'https://bp-master.startruckkorea.com/',   list: 'BP_Requests' },
+  ACC: { domain: 'https://acc-voucher.startruckkorea.com/', list: null }, // ACC는 '세대(Volume)' 구조라 리스트ID를 매번 동적으로 확보
+};
+let ltCurrentSys = 'FA';
+let _accVolListId = null;
+
+function openLinkTicketModal() {
+  document.getElementById('link-ticket-modal').classList.add('open');
+  ltSwitchSys('FA');
+}
+function closeLinkTicketModal() {
+  document.getElementById('link-ticket-modal').classList.remove('open');
+}
+function ltSwitchSys(sys) {
+  ltCurrentSys = sys;
+  document.querySelectorAll('.lt-tab').forEach(t => t.classList.toggle('active', t.dataset.sys === sys));
+  ltLoadMine();
+}
+async function ltGetAccListId() {
+  if (_accVolListId) return _accVolListId;
+  if (!siteId) { const s = await api('/sites/' + SITE_PATH); siteId = s.id; }
+  const drivesRes = await api('/sites/' + siteId + '/drives');
+  const docDrive = (drivesRes.value || []).find(d => ['Documents', '문서', 'Shared Documents'].includes(d.name)) || (drivesRes.value || [])[0];
+  const t = await token();
+  const res = await fetch(GRAPH + '/drives/' + docDrive.id + '/root:/acc_voucher_volumes.json:/content', { headers: { Authorization: 'Bearer ' + t } });
+  if (res.ok) { const cfg = await res.json(); _accVolListId = cfg.reqList; }
+  else { _accVolListId = '060b5c19-b1ed-40a3-9dbd-fae9a6648a57'; }
+  return _accVolListId;
+}
+async function ltLoadMine() {
+  const resultsEl = document.getElementById('lt-results');
+  resultsEl.innerHTML = '<div class="lt-empty">불러오는 중...</div>';
+  try {
+    if (!siteId) { const s = await api('/sites/' + SITE_PATH); siteId = s.id; }
+    let listId = LT_SYS[ltCurrentSys].list;
+    if (ltCurrentSys === 'ACC') listId = await ltGetAccListId();
+    const myEmail = (user?.email || user?.username || '').toLowerCase();
+    const data = await apiAll('/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$top=500');
+    const items = (data.value || [])
+      .filter(it => (it.fields.RequesterEmail || '').toLowerCase() === myEmail)
+      .sort((a, b) => b.id - a.id)
+      .slice(0, 50);
+    if (!items.length) { resultsEl.innerHTML = '<div class="lt-empty">본인이 신청한 티켓이 없습니다</div>'; return; }
+    resultsEl.innerHTML = items.map(it => {
+      const f = it.fields;
+      return '<div class="lt-result-row" onclick="ltInsertRef(\'' + f.Title.replace(/'/g, "\\'") + '\',' + it.id + ')">'
+        + '<div class="lt-result-title">' + f.Title + '</div>'
+        + '<div class="lt-result-meta">' + (f.Status || '') + '</div>'
+        + '</div>';
+    }).join('');
+  } catch (e) {
+    resultsEl.innerHTML = '<div class="lt-empty">불러오기 실패: ' + e.message + '</div>';
+  }
+}
+function ltInsertRef(title, id) {
+  const ta = document.getElementById('ssc-detail');
+  if (ta) {
+    const url = LT_SYS[ltCurrentSys].domain + '?openId=' + id;
+    const marker = '\n[' + title + '] ' + url + '\n';
+    const start = ta.selectionStart ?? ta.value.length;
+    const end = ta.selectionEnd ?? ta.value.length;
+    ta.value = ta.value.slice(0, start) + marker + ta.value.slice(end);
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = start + marker.length;
+  }
+  closeLinkTicketModal();
+}
+// 상세보기에 표시되는 텍스트에서 [FA-...ID-n]/[BP-...ID-n]/[ACC-...ID-n] + URL 패턴을 클릭 가능한 링크로 변환
+function linkifyTicketRefs(text) {
+  if (!text) return text;
+  const esc = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return esc.replace(/\[((?:FA|BP|ACC)-[^\]]+)\]\s*(https?:\/\/\S+)/g, (m, label, url) => {
+    return '<a class="ref-link" href="' + url + '" target="_blank" rel="noopener">' + label + ' ↗</a>';
+  });
+}
 </script>
+<div id="link-ticket-modal">
+  <div class="lt-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-size:.95rem;font-weight:700;color:#101B34">🔗 관련 티켓 링크 추가</div>
+      <div style="cursor:pointer;color:#94a3b8;font-size:1.1rem" onclick="closeLinkTicketModal()">✕</div>
+    </div>
+    <div class="lt-hint">본인이 신청한 FA / BP / ACC Voucher 티켓만 표시됩니다</div>
+    <div class="lt-tabs">
+      <div class="lt-tab active" data-sys="FA" onclick="ltSwitchSys('FA')">FA Registration</div>
+      <div class="lt-tab" data-sys="BP" onclick="ltSwitchSys('BP')">BP Master</div>
+      <div class="lt-tab" data-sys="ACC" onclick="ltSwitchSys('ACC')">ACC Voucher</div>
+    </div>
+    <div class="lt-results" id="lt-results"><div class="lt-empty">불러오는 중...</div></div>
+  </div>
+</div>
+
 </body>
 <!-- redeploy -->
 </html>
