@@ -1877,14 +1877,22 @@ async function ltGetAccListId() {
 // config 키(예: 'FA_ACCOUNTANT_1','FA_ACCOUNTANT_2'...)에 등록된 이메일 목록을 전부 모아서 반환
 function ltCfgEmails(cfg, prefix) {
   const out = [];
-  if (cfg[prefix] && cfg[prefix].email) out.push(cfg[prefix].email.toLowerCase());
-  let n = 1;
-  while (cfg[prefix + '_' + n] && cfg[prefix + '_' + n].email) { out.push(cfg[prefix + '_' + n].email.toLowerCase()); n++; }
+  const prefixLower = prefix.toLowerCase();
+  Object.keys(cfg || {}).forEach(k => {
+    const kLower = k.toLowerCase();
+    // 정확히 일치(ADMIN_SP) 하거나, 접두사+숫자 패턴(ADMIN_SP_1, ADMIN_SP_2...)이면 포함
+    if (kLower === prefixLower || kLower.match(new RegExp('^' + prefixLower.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&') + '_\\d+$'))) {
+      if (cfg[k] && cfg[k].email) out.push(cfg[k].email.trim().toLowerCase());
+    }
+  });
   return out;
 }
 async function ltLoadConfig() {
-  if (_ltCfg) return _ltCfg;
-  if (typeof _sysConfig !== 'undefined' && _sysConfig) { _ltCfg = _sysConfig; return _ltCfg; }
+  // _sysConfig(전역, boot()에서 이미 로드됨)가 있으면 항상 그걸 최우선으로 사용 —
+  // _ltCfg를 먼저 체크하면, 아주 드물게 _sysConfig가 준비되기 전에 한 번 실패해서
+  // 빈 값({})이 캐싱된 채로 영구히 굳어버리는 경쟁상태(race condition)가 있었음
+  if (typeof _sysConfig !== 'undefined' && _sysConfig && Object.keys(_sysConfig).length) { _ltCfg = _sysConfig; return _ltCfg; }
+  if (_ltCfg && Object.keys(_ltCfg).length) return _ltCfg;
   try { _ltCfg = await loadSystemConfig() || {}; } catch (e) { _ltCfg = {}; }
   return _ltCfg;
 }
@@ -1892,8 +1900,9 @@ async function ltLoadConfig() {
 // 반환값: { scope: 'all' | 'own' | 'type', typeFilter?: 'AP'|'AR'|'GL' }
 async function ltGetScope(sys) {
   const cfg = await ltLoadConfig();
-  const myEmail = (user?.email || user?.username || '').toLowerCase();
+  const myEmail = (user?.email || user?.username || '').trim().toLowerCase();
   const adminSp = ltCfgEmails(cfg, 'ADMIN_SP');
+  console.log('[관련티켓링크] 내 이메일:', myEmail, '| ADMIN_SP 목록:', adminSp, '| config 로드된 키 개수:', Object.keys(cfg||{}).length);
   if (adminSp.includes(myEmail)) return { scope: 'all' }; // ADMIN_SP_N — 전체 시스템 전부 열람 가능
 
   if (sys === 'FA') {
@@ -1917,7 +1926,7 @@ async function ltLoadList() {
     if (!siteId) { const s = await api('/sites/' + SITE_PATH); siteId = s.id; }
     let listId = LT_SYS[ltCurrentSys].list;
     if (ltCurrentSys === 'ACC') listId = await ltGetAccListId();
-    const myEmail = (user?.email || user?.username || '').toLowerCase();
+    const myEmail = (user?.email || user?.username || '').trim().toLowerCase();
     const scope = await ltGetScope(ltCurrentSys);
     const data = await apiAll('/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$top=500');
     let items = data.value || [];
