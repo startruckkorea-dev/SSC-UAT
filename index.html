@@ -235,6 +235,7 @@ body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #f3f2f1
 .link-ticket-btn:hover{background:#106ebe}
 #link-ticket-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:900;align-items:center;justify-content:center}
 #link-ticket-modal.open{display:flex}
+#lt-detail-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center}
 #lt-detail-modal.open{display:flex}
 .lt-card{background:#fff;border-radius:12px;padding:22px 24px;width:520px;max-width:92vw;max-height:78vh;display:flex;flex-direction:column}
 .lt-tabs{display:flex;gap:6px;margin-bottom:12px}
@@ -2108,7 +2109,7 @@ function ltCloseDetailModal() {
   </div>
 </div>
 
-<div id="lt-detail-modal" onclick="if(event.target===this) ltCloseDetailModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+<div id="lt-detail-modal" onclick="if(event.target===this) ltCloseDetailModal()" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:12px;padding:24px 26px;width:460px;max-width:92vw;max-height:80vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <div style="font-size:.92rem;font-weight:700;color:#101B34">관련 티켓 상세</div>
