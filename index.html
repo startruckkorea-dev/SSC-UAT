@@ -237,7 +237,7 @@ body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #f3f2f1
 .lt-attached:empty{display:none}
 .lt-chip{display:inline-flex;align-items:center;gap:6px;background:#eff6ff;border:1px solid #cfe4fc;border-radius:14px;padding:3px 5px 3px 9px;font-size:.75rem;color:#0f4c81}
 .lt-chip-sys{font-size:.63rem;font-weight:700;background:#0078d4;color:#fff;border-radius:4px;padding:1px 5px;letter-spacing:.02em}
-.lt-chip-name{cursor:pointer;font-weight:600}
+.lt-chip-name{cursor:pointer;font-weight:600;color:inherit;text-decoration:none}
 .lt-chip-name:hover{text-decoration:underline}
 .lt-chip-x{cursor:pointer;color:#94a3b8;font-size:.85rem;line-height:1;padding:2px 4px}
 .lt-chip-x:hover{color:#dc2626}
@@ -258,7 +258,8 @@ body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #f3f2f1
 .lt-result-row.selected{background:#eaf3fd}
 .lt-chk{margin-top:2px;flex-shrink:0;cursor:pointer;width:15px;height:15px;accent-color:#0078d4}
 .lt-result-body{flex:1;min-width:0}
-.lt-result-title{font-weight:600;color:#0078d4}
+.lt-result-title{font-weight:600;color:#0078d4;text-decoration:none;display:block}
+.lt-result-title:hover{text-decoration:underline}
 .lt-result-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px;color:#8a94a6;font-size:.7rem;margin-top:4px}
 .lt-badge{display:inline-block;border-radius:9px;padding:1.5px 8px;font-size:.66rem;font-weight:700}
 .lt-badge-대기{background:#fff4ce;color:#7d5700}
@@ -2071,8 +2072,8 @@ function ltRenderPage(page) {
     const dateStr = dateVal ? '<span class="lt-date">신청일 ' + fmtDate(dateVal) + '</span>' : '';
     return '<div class="lt-result-row' + rowSel + '" data-key="' + key + '">'
       + '<input type="checkbox" class="lt-chk" ' + checked + ' onclick="event.stopPropagation();ltToggleSelect(\'' + key + '\',\'' + ltCurrentSys + '\',\'' + f.Title.replace(/'/g, "\\'") + '\',' + it.id + ',this)">'
-      + '<div class="lt-result-body" onclick="ltOpenRealDetail(\'' + ltCurrentSys + '\',' + it.id + ')" title="클릭하면 실제 시스템 상세보기가 새 탭에서 열립니다">'
-      + '<div class="lt-result-title">' + f.Title + '<span class="lt-open-hint">상세보기 ↗</span></div>'
+      + '<div class="lt-result-body">'
+      + '<a class="lt-result-title" href="' + ltDetailUrl(ltCurrentSys, it.id) + '" target="_blank" rel="noopener" title="실제 시스템 상세보기가 새 탭에서 열립니다 (우클릭 → 링크 주소 복사 가능)">' + f.Title + '<span class="lt-open-hint">상세보기 ↗</span></a>'
       + '<div class="lt-result-meta">' + (f.RequesterEmail || '') + statusBadge + typeBadge + dateStr + '</div>'
       + '</div></div>';
   }).join('');
@@ -2109,7 +2110,7 @@ function ltRenderAttached() {
   el.innerHTML = [..._ltAttached.entries()].map(([key, { sys, title, id }]) =>
     '<span class="lt-chip">'
     + '<span class="lt-chip-sys">' + sys + '</span>'
-    + '<span class="lt-chip-name" onclick="ltOpenRealDetail(\'' + sys + '\',' + id + ')" title="클릭하면 ' + sys + ' 시스템의 실제 상세보기가 새 탭에서 열립니다">' + esc(title) + ' ↗</span>'
+    + '<a class="lt-chip-name" href="' + ltDetailUrl(sys, id) + '" target="_blank" rel="noopener" title="' + sys + ' 시스템의 실제 상세보기가 새 탭에서 열립니다 (우클릭 → 링크 주소 복사 가능)">' + esc(title) + ' ↗</a>'
     + '<span class="lt-chip-x" onclick="ltRemoveAttached(\'' + key + '\')" title="첨부 해제">✕</span>'
     + '</span>').join('');
 }
@@ -2140,15 +2141,18 @@ function linkifyTicketRefs(text) {
     .trim();
   const esc = plain.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return esc.replace(/\[([^:\]]+):(FA|BP|ACC):(\d+)\]/g, (m, label, sys, id) => {
-    const url = LT_SYS[sys].domain + '?openId=' + id;
+    const url = ltDetailUrl(sys, id);
     return '<a class="ref-link" href="' + url + '" target="_blank" rel="noopener" title="' + sys + ' 시스템의 실제 상세보기가 새 탭에서 열립니다">🔗 ' + label + ' ↗</a>';
   });
+}
+// FA/BP/ACC 상세보기 딥링크 URL 생성 — 화면 곳곳에서 같은 규칙을 쓰도록 한 곳으로 모음
+function ltDetailUrl(sys, id) {
+  return LT_SYS[sys].domain + '?openId=' + id;
 }
 // 검색 결과 클릭 시 SSC-UAT의 간이 미리보기 대신 실제 FA/BP/ACC 시스템 상세보기를 새 탭에서 바로 열기
 // (해당 시스템은 이미 openId 단독보기 모드가 구현되어 있어, 그 상세팝업만 뜨고 다른 메뉴로는 못 감)
 function ltOpenRealDetail(sys, id) {
-  const url = LT_SYS[sys].domain + '?openId=' + id;
-  window.open(url, '_blank');
+  window.open(ltDetailUrl(sys, id), '_blank');
 }
 </script>
 <div id="link-ticket-modal" onclick="if(event.target===this) closeLinkTicketModal()">
