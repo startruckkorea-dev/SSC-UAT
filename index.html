@@ -2174,7 +2174,7 @@ function ltCloseDetailModal() {
   document.getElementById('lt-detail-modal').classList.remove('open');
 }
 </script>
-<div id="link-ticket-modal">
+<div id="link-ticket-modal" onclick="if(event.target===this) closeLinkTicketModal()">
   <div class="lt-card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <div style="font-size:.95rem;font-weight:700;color:#101B34">🔗 관련 티켓 링크 추가</div>
