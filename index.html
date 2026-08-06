@@ -1401,7 +1401,8 @@ async function showDetail(reqId, fromTab) {
   try {
     const r = await api('/sites/'+siteId+'/lists/'+sscReq()+'/items/'+reqId+'?$expand=fields');
     const f = r.fields;
-    if(f.Detail) f.Detail = stripHtml(f.Detail);
+    // Detail은 stripHtml을 태우지 않음 — stripHtml은 <br>/<div>를 개행 없이 지워버려 줄바꿈이 사라진다.
+    // linkifyTicketRefs()가 br/div를 개행으로 환원한 뒤 이스케이프까지 처리한다.
     // PKFAssignees는 파싱용이므로 stripHtml 제외
 
     const sec = t=>'<div style="margin:16px 0 8px;font-size:13px;font-weight:700;color:#0078d4;padding:6px 10px;background:#f0f6ff;border-left:3px solid #0078d4;border-radius:3px">'+t+'</div>';
