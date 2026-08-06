@@ -231,8 +231,9 @@ body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #f3f2f1
   .assignee-grid { grid-template-columns: 1fr; }
   .appr-grid { grid-template-columns: 1fr; }
 }
-.link-ticket-btn{display:inline-flex;align-items:center;gap:4px;font-size:.72rem;color:#0078d4;background:#eff6ff;border:1px solid #cfe4fc;border-radius:6px;padding:4px 10px;cursor:pointer;margin-top:6px;font-family:inherit}
-.link-ticket-btn:hover{background:#e0eefe}
+.link-ticket-btn{display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-weight:600;color:#fff;background:linear-gradient(135deg,#0078d4,#005a9e);border:none;border-radius:8px;padding:8px 16px;cursor:pointer;font-family:inherit;box-shadow:0 2px 6px rgba(0,120,212,.25);transition:transform .12s,box-shadow .12s}
+.link-ticket-btn:hover{transform:translateY(-1px);box-shadow:0 4px 10px rgba(0,120,212,.35)}
+.link-ticket-btn:active{transform:translateY(0)}
 #link-ticket-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:900;align-items:center;justify-content:center}
 #link-ticket-modal.open{display:flex}
 .lt-card{background:#fff;border-radius:12px;padding:22px 24px;width:520px;max-width:92vw;max-height:78vh;display:flex;flex-direction:column}
@@ -410,9 +411,11 @@ body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #f3f2f1
       <div class="section-title">3. 상세 내용</div>
       <div class="form-row full">
         <div class="form-group">
-          <label>상세 내용 <span class="req">*</span></label>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <label style="margin:0">상세 내용 <span class="req">*</span></label>
+            <button type="button" class="link-ticket-btn" onclick="openLinkTicketModal()">🔗 관련 티켓 링크 추가</button>
+          </div>
           <textarea id="ssc-detail" style="min-height:110px" placeholder="요청 내용을 구체적으로 기재해주세요. 예) 처리 요청 사항, 관련 문서 번호, 특이사항 등"></textarea>
-          <button type="button" class="link-ticket-btn" onclick="openLinkTicketModal()">🔗 관련 티켓 링크 추가</button>
         </div>
       </div>
 
