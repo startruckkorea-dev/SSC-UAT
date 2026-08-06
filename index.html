@@ -2070,13 +2070,35 @@ async function ltShowRemoteDetail(sys, id) {
     const rows = [];
     const dateVal = f.RequestDate || f.SubmittedDate;
     if (dateVal) rows.push('<div class="lt-detail-row"><div class="lt-detail-label">신청일</div><div class="lt-detail-val">' + fmtDate(dateVal) + '</div></div>');
-    ['Title','RequesterEmail','Status','VoucherType','BPType','SubCategory','FAType','BPCode','BPName','Amount'].forEach(k => {
+    const KNOWN = ['Title','RequesterEmail','Status','VoucherType','BPType','SubCategory','FAType','BPCode','BPName','Amount'];
+    KNOWN.forEach(k => {
       if (f[k] !== undefined && f[k] !== null && f[k] !== '') {
         rows.push('<div class="lt-detail-row"><div class="lt-detail-label">' + (LT_LABEL_MAP[k] || k) + '</div><div class="lt-detail-val">' + f[k] + '</div></div>');
       }
     });
-    if (f.Description) {
-      rows.push('<div class="lt-detail-row"><div class="lt-detail-label">상세 내용</div><div class="lt-detail-val" style="white-space:pre-wrap">' + f.Description + '</div></div>');
+    // 시스템/타입마다 상세 내용 필드명이 다름(Description/Purpose/Reason 등) — 기술적 필드를 제외한 나머지 텍스트 필드는 전부 표시
+    const EXCLUDE = new Set([...KNOWN, 'RequestDate','SubmittedDate','id','@odata.etag','ContentType','Created','Modified',
+      'AuthorLookupId','EditorLookupId','_UIVersionString','Attachments','Edit','LinkTitleNoMenu','LinkTitle',
+      'ItemChildCount','FolderChildCount','_ComplianceFlags','_ComplianceTag','_ComplianceTagWrittenTime',
+      '_ComplianceTagUserId','AppAuthorLookupId','AppEditorLookupId','AttachedFiles','RequestID']);
+    Object.keys(f).forEach(k => {
+      if (EXCLUDE.has(k) || k.startsWith('_') || k.endsWith('LookupId')) return;
+      const v = f[k];
+      if (v === undefined || v === null || v === '') return;
+      const sv = String(v);
+      if (sv.startsWith('[') || sv.startsWith('{')) return; // JSON 블록(AssetList 등)은 너무 기술적이라 생략
+      const clean = sv.replace(/<[^>]+>/g, '').trim(); // SharePoint 리치텍스트의 <div> 래퍼 제거
+      if (!clean) return;
+      rows.push('<div class="lt-detail-row"><div class="lt-detail-label">' + k + '</div><div class="lt-detail-val" style="white-space:pre-wrap">' + clean + '</div></div>');
+    });
+    // 첨부파일 (파일명|URL;파일명2|URL2 형식 파싱)
+    if (f.AttachedFiles) {
+      const clean = String(f.AttachedFiles).replace(/<[^>]+>/g, '').trim();
+      const files = clean.split(';').map(s => s.trim()).filter(Boolean).map(pair => {
+        const [name, url] = pair.split('|');
+        return url ? '<a href="' + url.trim() + '" target="_blank" rel="noopener" style="display:block;color:#0078d4;font-size:.8rem;margin-bottom:4px">📎 ' + (name || url).trim() + '</a>' : '';
+      }).join('');
+      if (files) rows.push('<div class="lt-detail-row"><div class="lt-detail-label">첨부파일</div><div class="lt-detail-val">' + files + '</div></div>');
     }
     body.innerHTML = rows.join('') || '<div class="lt-empty">표시할 정보가 없습니다</div>';
   } catch (e) {
