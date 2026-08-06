@@ -1997,7 +1997,8 @@ function ltRenderPage(page) {
     const typeVal = f.VoucherType || f.BPType || f.FAType || '';
     const statusBadge = f.Status ? '<span class="lt-badge lt-badge-' + f.Status + '">' + f.Status + '</span>' : '';
     const typeBadge = typeVal ? '<span class="lt-badge lt-badge-type">' + typeVal + '</span>' : '';
-    const dateStr = f.RequestDate ? '<span class="lt-date">신청일 ' + fmtDate(f.RequestDate) + '</span>' : '';
+    const dateVal = f.RequestDate || f.SubmittedDate;
+    const dateStr = dateVal ? '<span class="lt-date">신청일 ' + fmtDate(dateVal) + '</span>' : '';
     return '<div class="lt-result-row' + rowSel + '" data-key="' + key + '">'
       + '<input type="checkbox" class="lt-chk" ' + checked + ' onclick="event.stopPropagation();ltToggleSelect(\'' + key + '\',\'' + ltCurrentSys + '\',\'' + f.Title.replace(/'/g, "\\'") + '\',' + it.id + ',this)">'
       + '<div class="lt-result-body" onclick="ltShowRemoteDetail(\'' + ltCurrentSys + '\',' + it.id + ')" title="클릭하면 상세 내용을 미리 볼 수 있습니다">'
@@ -2066,10 +2067,11 @@ async function ltShowRemoteDetail(sys, id) {
     const item = await api('/sites/' + siteId + '/lists/' + listId + '/items/' + id + '?$expand=fields');
     const f = item.fields;
     const rows = [];
-    ['Title','RequesterEmail','Status','RequestDate','VoucherType','BPType','SubCategory','FAType','BPCode','BPName','Amount'].forEach(k => {
+    const dateVal = f.RequestDate || f.SubmittedDate;
+    if (dateVal) rows.push('<div class="lt-detail-row"><div class="lt-detail-label">신청일</div><div class="lt-detail-val">' + fmtDate(dateVal) + '</div></div>');
+    ['Title','RequesterEmail','Status','VoucherType','BPType','SubCategory','FAType','BPCode','BPName','Amount'].forEach(k => {
       if (f[k] !== undefined && f[k] !== null && f[k] !== '') {
-        const val = k === 'RequestDate' ? fmtDate(f[k]) : f[k];
-        rows.push('<div class="lt-detail-row"><div class="lt-detail-label">' + (LT_LABEL_MAP[k] || k) + '</div><div class="lt-detail-val">' + val + '</div></div>');
+        rows.push('<div class="lt-detail-row"><div class="lt-detail-label">' + (LT_LABEL_MAP[k] || k) + '</div><div class="lt-detail-val">' + f[k] + '</div></div>');
       }
     });
     if (f.Description) {
