@@ -1921,9 +1921,9 @@ function showLoginErr(msg){ const el=document.getElementById('login-err'); el.st
 // ⚠️ 이 기능은 UAT 테스트 목적으로만 추가된 것으로, 프로덕션(shared-sc)에는 반영하지 않음
 // ══════════════════════════════════════════════════════════
 const LT_SYS = {
-  FA:  { domain: 'https://fa.startruckkorea.com/',         list: 'FA_Requests' },
-  BP:  { domain: 'https://bp-master.startruckkorea.com/',   list: 'BP_Requests' },
-  ACC: { domain: 'https://acc-voucher.startruckkorea.com/', list: null }, // ACC는 '세대(Volume)' 구조라 리스트ID를 매번 동적으로 확보
+  FA:  { domain: 'https://fa.startruckkorea.com/',           list: 'FA_Requests' },
+  BP:  { domain: 'https://bp-master.startruckkorea.com/',     list: 'BP_Requests' },
+  ACC: { domain: 'https://startruckkorea-dev.github.io/ACC-Voucher-UAT/', list: null }, // ACC-Voucher-UAT(테스트본)로 연결 — 같은 데이터, 신규 기능(결재지정자 수동변경 등) 포함 화면
 };
 let ltCurrentSys = 'FA';
 let _accVolListId = null;
@@ -2104,10 +2104,11 @@ function linkifyTicketRefs(text) {
   if (!text) return text;
   const esc = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return esc.replace(/\[([^:\]]+):(FA|BP|ACC):(\d+)\]/g, (m, label, sys, id) => {
-    return '<span class="ref-link" onclick="ltShowRemoteDetail(\'' + sys + '\',' + id + ')">🔗 ' + label + '</span>';
+    const url = LT_SYS[sys].domain + '?openId=' + id;
+    return '<a class="ref-link" href="' + url + '" target="_blank" rel="noopener">🔗 ' + label + ' ↗</a>';
   });
 }
-// SSC-UAT 밖으로 이동하지 않고, 그 자리에서 FA/BP/ACC 티켓 상세를 직접 조회해서 팝업으로 보여줌
+// (검색 결과 목록에서 선택 전 미리보기 용도로는 ltShowRemoteDetail을 계속 사용함 — SSC-UAT 밖으로 이동하지 않고 그 자리에서 조회)
 const LT_LABEL_MAP = {
   Title:'제목', RequesterEmail:'신청자', Status:'상태', RequestDate:'신청일',
   VoucherType:'Voucher Type', BPType:'BP Type', SubCategory:'세부 구분', FAType:'FA Type',
