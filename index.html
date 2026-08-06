@@ -1850,6 +1850,7 @@ const LT_SYS = {
 };
 let ltCurrentSys = 'FA';
 let _accVolListId = null;
+let _ltCfg = null; // system_config_final.xlsx 캐시 (관련 티켓 링크 권한 판단용)
 
 function openLinkTicketModal() {
   document.getElementById('link-ticket-modal').classList.add('open');
@@ -1861,20 +1862,56 @@ function closeLinkTicketModal() {
 function ltSwitchSys(sys) {
   ltCurrentSys = sys;
   document.querySelectorAll('.lt-tab').forEach(t => t.classList.toggle('active', t.dataset.sys === sys));
-  ltLoadMine();
+  ltLoadList();
 }
 async function ltGetAccListId() {
   if (_accVolListId) return _accVolListId;
   if (!siteId) { const s = await api('/sites/' + SITE_PATH); siteId = s.id; }
   const drivesRes = await api('/sites/' + siteId + '/drives');
   const docDrive = (drivesRes.value || []).find(d => ['Documents', '문서', 'Shared Documents'].includes(d.name)) || (drivesRes.value || [])[0];
-  const t = await token();
+  const t = await getToken();
   const res = await fetch(GRAPH + '/drives/' + docDrive.id + '/root:/acc_voucher_volumes.json:/content', { headers: { Authorization: 'Bearer ' + t } });
   if (res.ok) { const cfg = await res.json(); _accVolListId = cfg.reqList; }
   else { _accVolListId = '060b5c19-b1ed-40a3-9dbd-fae9a6648a57'; }
   return _accVolListId;
 }
-async function ltLoadMine() {
+// config 키(예: 'FA_ACCOUNTANT_1','FA_ACCOUNTANT_2'...)에 등록된 이메일 목록을 전부 모아서 반환
+function ltCfgEmails(cfg, prefix) {
+  const out = [];
+  if (cfg[prefix] && cfg[prefix].email) out.push(cfg[prefix].email.toLowerCase());
+  let n = 1;
+  while (cfg[prefix + '_' + n] && cfg[prefix + '_' + n].email) { out.push(cfg[prefix + '_' + n].email.toLowerCase()); n++; }
+  return out;
+}
+async function ltLoadConfig() {
+  if (_ltCfg) return _ltCfg;
+  if (typeof _sysConfig !== 'undefined' && _sysConfig) { _ltCfg = _sysConfig; return _ltCfg; }
+  try { _ltCfg = await loadSystemConfig() || {}; } catch (e) { _ltCfg = {}; }
+  return _ltCfg;
+}
+// 현재 로그인한 사용자의 열람 범위를 시스템별로 판단
+// 반환값: { scope: 'all' | 'own' | 'type', typeFilter?: 'AP'|'AR'|'GL' }
+async function ltGetScope(sys) {
+  const cfg = await ltLoadConfig();
+  const myEmail = (user?.email || user?.username || '').toLowerCase();
+  const adminSp = ltCfgEmails(cfg, 'ADMIN_SP');
+  if (adminSp.includes(myEmail)) return { scope: 'all' }; // ADMIN_SP_N — 전체 시스템 전부 열람 가능
+
+  if (sys === 'FA') {
+    const accountants = ltCfgEmails(cfg, 'FA_ACCOUNTANT');
+    if (accountants.includes(myEmail)) return { scope: 'all' };
+  } else if (sys === 'BP') {
+    const approvers = [...ltCfgEmails(cfg, 'BP_VENDOR_APPROVER'), ...ltCfgEmails(cfg, 'BP_CUSTOMER_APPROVER')];
+    if (approvers.includes(myEmail)) return { scope: 'all' };
+  } else if (sys === 'ACC') {
+    for (const t of ['AP', 'AR', 'GL']) {
+      const list = ltCfgEmails(cfg, 'ACC-Voucher_' + t);
+      if (list.includes(myEmail)) return { scope: 'type', typeFilter: t };
+    }
+  }
+  return { scope: 'own' };
+}
+async function ltLoadList() {
   const resultsEl = document.getElementById('lt-results');
   resultsEl.innerHTML = '<div class="lt-empty">불러오는 중...</div>';
   try {
@@ -1882,17 +1919,28 @@ async function ltLoadMine() {
     let listId = LT_SYS[ltCurrentSys].list;
     if (ltCurrentSys === 'ACC') listId = await ltGetAccListId();
     const myEmail = (user?.email || user?.username || '').toLowerCase();
+    const scope = await ltGetScope(ltCurrentSys);
     const data = await apiAll('/sites/' + siteId + '/lists/' + listId + '/items?$expand=fields&$top=500');
-    const items = (data.value || [])
-      .filter(it => (it.fields.RequesterEmail || '').toLowerCase() === myEmail)
-      .sort((a, b) => b.id - a.id)
-      .slice(0, 50);
-    if (!items.length) { resultsEl.innerHTML = '<div class="lt-empty">본인이 신청한 티켓이 없습니다</div>'; return; }
+    let items = data.value || [];
+    if (scope.scope === 'own') {
+      items = items.filter(it => (it.fields.RequesterEmail || '').toLowerCase() === myEmail);
+    } else if (scope.scope === 'type') {
+      items = items.filter(it => (it.fields.VoucherType || '') === scope.typeFilter);
+    }
+    // scope==='all'이면 필터 없이 전체
+    items = items.sort((a, b) => b.id - a.id).slice(0, 50);
+    const hintEl = document.querySelector('.lt-hint');
+    if (hintEl) {
+      hintEl.textContent = scope.scope === 'all' ? '담당 권한으로 전체 티켓이 표시됩니다'
+        : scope.scope === 'type' ? scope.typeFilter + ' 담당 권한으로 해당 유형 전체 티켓이 표시됩니다'
+        : '본인이 신청한 티켓만 표시됩니다';
+    }
+    if (!items.length) { resultsEl.innerHTML = '<div class="lt-empty">표시할 티켓이 없습니다</div>'; return; }
     resultsEl.innerHTML = items.map(it => {
       const f = it.fields;
       return '<div class="lt-result-row" onclick="ltInsertRef(\'' + f.Title.replace(/'/g, "\\'") + '\',' + it.id + ')">'
         + '<div class="lt-result-title">' + f.Title + '</div>'
-        + '<div class="lt-result-meta">' + (f.Status || '') + '</div>'
+        + '<div class="lt-result-meta">' + (f.RequesterEmail || '') + (f.Status ? ' · ' + f.Status : '') + (f.VoucherType ? ' · ' + f.VoucherType : '') + '</div>'
         + '</div>';
     }).join('');
   } catch (e) {
