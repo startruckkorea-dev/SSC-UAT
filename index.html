@@ -2131,7 +2131,17 @@ function ltRenderPage(page) {
   const filtered = kw
     ? _ltAllItems.filter(it => ((it.fields.Title || '') + ' ' + (it.fields.RequesterEmail || '')).toLowerCase().includes(kw))
     : _ltAllItems;
-  if (!filtered.length) { resultsEl.innerHTML = '<div class="lt-empty">' + (kw ? '검색 결과가 없습니다' : '표시할 티켓이 없습니다') + '</div>'; pagEl.innerHTML = ''; return; }
+  if (!filtered.length) {
+    // 기본값으로 '내 결재건'이 켜져 있어서, 결재 이력이 없는 사용자는 이유 없이 빈 목록을 보게 된다.
+    // 무엇 때문에 비었는지 알려줘야 체크를 풀 생각을 할 수 있다.
+    const filterOn = _ltMineOnly || _ltAccOnly;
+    const msg = kw ? '검색 결과가 없습니다'
+      : filterOn ? '조건에 맞는 티켓이 없습니다<br><span style="font-size:.68rem;color:#94a3b8">상단의 결재건 필터를 해제하면 전체를 볼 수 있습니다</span>'
+      : '표시할 티켓이 없습니다';
+    resultsEl.innerHTML = '<div class="lt-empty">' + msg + '</div>';
+    pagEl.innerHTML = '';
+    return;
+  }
   const totalPages = Math.max(1, Math.ceil(filtered.length / LT_PAGE_SIZE));
   _ltPage = Math.min(Math.max(1, page), totalPages);
   const pageItems = filtered.slice((_ltPage - 1) * LT_PAGE_SIZE, _ltPage * LT_PAGE_SIZE);
