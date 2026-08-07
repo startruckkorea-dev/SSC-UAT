@@ -268,6 +268,21 @@ body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #f3f2f1
 .lt-badge-철회{background:#f1f5f9;color:#64748b}
 .lt-badge-type{background:#eef1f5;color:#475569;font-weight:600}
 .lt-date{color:#94a3b8}
+/* ACC Voucher 탭 전용 — 각 행 우측 상단의 Posting 상태 뱃지 */
+.lt-posting{flex-shrink:0;display:inline-flex;align-items:center;gap:4px;border-radius:9px;padding:2px 9px;font-size:.66rem;font-weight:700;white-space:nowrap;margin-top:1px}
+.lt-posting-done{background:#dff6dd;color:#107c10}
+.lt-posting-todo{background:#fff4ce;color:#7d5700}
+/* Posting 완료 건 선택 시 뜨는 확인 모달 (관련 티켓 모달보다 위에 떠야 하므로 z-index를 더 높게) */
+#lt-confirm-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:960;align-items:center;justify-content:center}
+#lt-confirm-modal.open{display:flex}
+.lt-confirm-box{background:#fff;border-radius:12px;padding:24px 26px;max-width:400px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18)}
+.lt-confirm-title{font-size:.95rem;font-weight:700;color:#1e293b;margin-bottom:8px;display:flex;align-items:center;gap:7px}
+.lt-confirm-body{font-size:.8rem;color:#475569;line-height:1.7;margin-bottom:6px}
+.lt-confirm-target{font-size:.76rem;color:#0078d4;font-weight:600;background:#f0f6ff;border-radius:6px;padding:8px 11px;margin-bottom:16px;word-break:break-all}
+.lt-confirm-btns{display:flex;justify-content:flex-end;gap:8px}
+.lt-confirm-btns button{border:none;border-radius:8px;padding:8px 18px;font-size:.8rem;font-weight:600;cursor:pointer;font-family:inherit}
+.lt-confirm-cancel{background:#f1f5f9;color:#475569}
+.lt-confirm-ok{background:#0078d4;color:#fff}
 .lt-actions{display:flex;justify-content:space-between;align-items:center;margin-top:10px}
 .lt-selected-count{font-size:.74rem;color:#64748b}
 .lt-insert-btn{background:#0078d4;color:#fff;border:none;border-radius:6px;padding:8px 18px;font-size:.8rem;font-weight:600;cursor:pointer;font-family:inherit}
@@ -2012,24 +2027,57 @@ function ltRenderPage(page) {
     const typeBadge = typeVal ? '<span class="lt-badge lt-badge-type">' + typeVal + '</span>' : '';
     const dateVal = f.RequestDate || f.SubmittedDate;
     const dateStr = dateVal ? '<span class="lt-date">신청일 ' + fmtDate(dateVal) + '</span>' : '';
+    // ACC Voucher만 Posting 상태를 함께 표시. 판정 기준은 ACC 시스템과 동일하게 B1 Doc No. 유무.
+    const isAcc = ltCurrentSys === 'ACC';
+    const posted = isAcc && (f.B1DocNo || '').trim() !== '';
+    const postingBadge = isAcc
+      ? '<span class="lt-posting ' + (posted ? 'lt-posting-done' : 'lt-posting-todo') + '" title="Posting (B1 Doc No. 입력 시 자동)">'
+        + (posted ? '✅ Posting 완료' : 'Posting 미완료') + '</span>'
+      : '';
     return '<div class="lt-result-row' + rowSel + '" data-key="' + key + '">'
-      + '<input type="checkbox" class="lt-chk" ' + checked + ' onclick="event.stopPropagation();ltToggleSelect(\'' + key + '\',\'' + ltCurrentSys + '\',\'' + f.Title.replace(/'/g, "\\'") + '\',' + it.id + ',this)">'
+      + '<input type="checkbox" class="lt-chk" ' + checked + ' data-posted="' + (posted ? '1' : '') + '" onclick="event.stopPropagation();ltToggleSelect(\'' + key + '\',\'' + ltCurrentSys + '\',\'' + f.Title.replace(/'/g, "\\'") + '\',' + it.id + ',this)">'
       + '<div class="lt-result-body">'
       + '<a class="lt-result-title" href="' + ltDetailUrl(ltCurrentSys, it.id) + '" target="_blank" rel="noopener" title="실제 시스템 상세보기가 새 탭에서 열립니다 (우클릭 → 링크 주소 복사 가능)">' + f.Title + '<span class="lt-open-hint">상세보기 ↗</span></a>'
       + '<div class="lt-result-meta">' + (f.RequesterEmail || '') + statusBadge + typeBadge + dateStr + '</div>'
-      + '</div></div>';
+      + '</div>' + postingBadge + '</div>';
   }).join('');
   pagEl.innerHTML = totalPages <= 1 ? '' :
     '<span style="cursor:pointer" onclick="ltRenderPage(' + (_ltPage - 1) + ')">‹</span>'
     + '<span>' + _ltPage + ' / ' + totalPages + '</span>'
     + '<span style="cursor:pointer" onclick="ltRenderPage(' + (_ltPage + 1) + ')">›</span>';
 }
+let _ltPendingConfirm = null; // Posting 완료 건 확인 대기 중인 선택 정보
 function ltToggleSelect(key, sys, title, id, checkboxEl) {
+  // ACC Voucher 중 Posting이 완료된 건을 "새로 선택"하려는 경우에만 확인을 받는다.
+  // (선택 해제는 확인 없이 그대로 진행 — 되돌리는 동작까지 막을 이유가 없음)
+  const isNewSelection = !_ltSelected.has(key);
+  if (isNewSelection && checkboxEl && checkboxEl.dataset.posted === '1') {
+    checkboxEl.checked = false; // 확인받기 전까지는 체크 해제 상태로 되돌림
+    _ltPendingConfirm = { key, sys, title, id, checkboxEl };
+    document.getElementById('lt-confirm-target').textContent = title;
+    document.getElementById('lt-confirm-modal').classList.add('open');
+    return;
+  }
+  ltApplySelect(key, sys, title, id, checkboxEl);
+}
+function ltApplySelect(key, sys, title, id, checkboxEl) {
   if (_ltSelected.has(key)) { _ltSelected.delete(key); }
   else { _ltSelected.set(key, { sys, title, id }); }
   const row = checkboxEl ? checkboxEl.closest('.lt-result-row') : null;
   if (row) row.classList.toggle('selected', _ltSelected.has(key));
   ltUpdateSelectedBar();
+}
+function ltCloseConfirm() {
+  document.getElementById('lt-confirm-modal').classList.remove('open');
+  _ltPendingConfirm = null;
+}
+function ltConfirmProceed() {
+  const p = _ltPendingConfirm;
+  document.getElementById('lt-confirm-modal').classList.remove('open');
+  _ltPendingConfirm = null;
+  if (!p) return;
+  if (p.checkboxEl) p.checkboxEl.checked = true;
+  ltApplySelect(p.key, p.sys, p.title, p.id, p.checkboxEl);
 }
 function ltUpdateSelectedBar() {
   const cnt = _ltSelected.size;
@@ -2111,6 +2159,18 @@ function ltOpenRealDetail(sys, id) {
   window.open(ltDetailUrl(sys, id), '_blank');
 }
 </script>
+<div id="lt-confirm-modal" onclick="if(event.target===this) ltCloseConfirm()">
+  <div class="lt-confirm-box">
+    <div class="lt-confirm-title">⚠️ 이미 Posting이 완료된 전표입니다</div>
+    <div class="lt-confirm-body">이 전표는 B1 Doc No.가 입력되어 Posting이 <b>완료</b> 처리된 건입니다. 그래도 이 티켓에 첨부하시겠습니까?</div>
+    <div class="lt-confirm-target" id="lt-confirm-target"></div>
+    <div class="lt-confirm-btns">
+      <button class="lt-confirm-cancel" onclick="ltCloseConfirm()">취소</button>
+      <button class="lt-confirm-ok" onclick="ltConfirmProceed()">계속 첨부</button>
+    </div>
+  </div>
+</div>
+
 <div id="link-ticket-modal" onclick="if(event.target===this) closeLinkTicketModal()">
   <div class="lt-card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
