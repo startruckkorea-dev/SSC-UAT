@@ -266,6 +266,16 @@ body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #f3f2f1
 /* 메타는 한 줄로 압축 — 신청자·상태·유형·신청일을 가운데 점으로 이어붙여 높이를 아낀다 */
 .lt-result-meta{display:flex;flex-wrap:nowrap;align-items:center;gap:5px;color:#8a94a6;font-size:.655rem;margin-top:2px;overflow:hidden}
 .lt-requester{color:#64748b;flex-shrink:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 기간 필터 줄 — 기준 날짜 선택 + 시작/종료일 */
+.lt-daterow{display:flex;align-items:center;gap:6px;margin-bottom:7px}
+.lt-daterow select,.lt-daterow input[type=date]{
+  border:1px solid #d0d7de;border-radius:7px;padding:5px 8px;font-size:.72rem;font-family:inherit;color:#334155;background:#fff}
+.lt-daterow select{font-weight:600;color:#0b5fa5;background:#f3f9ff;border-color:#c2ddf5;cursor:pointer}
+.lt-daterow input[type=date]{flex:1;min-width:0}
+.lt-daterow-tilde{color:#94a3b8;font-size:.72rem}
+.lt-date-reset{font-size:.7rem;color:#64748b;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:7px;
+  padding:5px 9px;cursor:pointer;white-space:nowrap;user-select:none}
+.lt-date-reset:hover{background:#e2e8f0;color:#334155}
 /* 검색줄의 필터 체크박스 */
 .lt-filter-chip{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:.7rem;color:#475569;background:#f1f5f9;
   border:1px solid #e2e8f0;border-radius:7px;padding:6px 9px;white-space:nowrap;user-select:none}
@@ -2008,6 +2018,7 @@ async function ltGetApprovalIndex(sys) {
   const myEmail = (user?.email || user?.username || '').trim().toLowerCase();
   const DONE = ['승인', '승인완료', '반려'];   // 아직 '대기'인 건은 "결재한 기록"이 아님
   const mine = new Set(), acc = new Set();
+  const lastDate = {};   // RequestID -> 가장 늦은 결재 처리일(ISO). "최종 결재일" 필터에 사용
   let listIds = [];
   if (sys === 'FA') listIds = ['FA_Approvals'];
   else if (sys === 'BP') listIds = ['BP_Approvals'];
@@ -2021,11 +2032,44 @@ async function ltGetApprovalIndex(sys) {
         const rid = String(f.RequestID);
         if ((f.ApproverEmail || '').trim().toLowerCase() === myEmail) mine.add(rid);
         if (ltIsAccRole(f.ApproverRole)) acc.add(rid);
+        // 결재 단계가 여러 개이므로 가장 늦은 처리일을 최종 결재일로 본다.
+        // (반려로 끝난 건은 그 반려 시점이 마지막 처리일이 된다)
+        if (f.ApprovalDate && (!lastDate[rid] || f.ApprovalDate > lastDate[rid])) lastDate[rid] = f.ApprovalDate;
       });
     } catch (e) { console.warn('[관련티켓링크] 결재이력 조회 실패:', lid, e.message); }
   }
-  _ltApprCache[sys] = { mine, acc };
+  _ltApprCache[sys] = { mine, acc, lastDate };
   return _ltApprCache[sys];
+}
+// ── 기간 필터 (신청일 / 최종 결재일) ──────────────────────────────────────
+let _ltDateField = 'req';   // 'req' = 신청일, 'appr' = 최종 결재일
+let _ltDateFrom = '', _ltDateTo = '';
+// 최종 결재일 기준으로 바꾸면 결재 이력이 필요하므로, 그때만 인덱스를 확보한다.
+async function ltApplyDateFilter() {
+  _ltDateField = document.getElementById('lt-date-field').value;
+  _ltDateFrom = document.getElementById('lt-date-from').value;
+  _ltDateTo = document.getElementById('lt-date-to').value;
+  if (_ltDateField === 'appr' && (_ltDateFrom || _ltDateTo)) {
+    const el = document.getElementById('lt-results');
+    if (el) el.innerHTML = '<div class="lt-empty">결재 이력을 확인하는 중...</div>';
+    await ltGetApprovalIndex(ltCurrentSys);
+  }
+  ltRenderPage(1);
+}
+function ltResetDateFilter() {
+  document.getElementById('lt-date-from').value = '';
+  document.getElementById('lt-date-to').value = '';
+  _ltDateFrom = ''; _ltDateTo = '';
+  ltRenderPage(1);
+}
+// 항목의 비교 기준 날짜를 KST 기준 'YYYY-MM-DD'로 반환 (없으면 null)
+function ltItemDateKey(it) {
+  if (_ltDateField === 'appr') {
+    const iso = _ltApprCache[ltCurrentSys]?.lastDate?.[String(it.id)];
+    return iso ? fmtDateOnly(iso) : null;
+  }
+  const iso = it.fields.RequestDate || it.fields.SubmittedDate;
+  return iso ? fmtDateOnly(iso) : null;
 }
 // ACC는 Approvals 리스트가 세대별로 여러 개일 수 있어 전부 모아서 반환
 // ACC 결재 이력은 세대(APR01, APR02...)로 나뉘어 있고 관리자가 언제든 세대를 추가할 수 있다.
@@ -2135,6 +2179,14 @@ async function ltLoadList() {
     if (myToken !== _ltReqToken) return;
     resultsEl.innerHTML = '<div class="lt-empty">불러오기 실패: ' + e.message + '</div>';
   }
+  // 최종 결재일 기준으로 기간을 걸어둔 채 탭을 바꾸면, 새 시스템의 결재 인덱스가 아직 없어
+  // 모든 항목이 걸러져 버린다. 목록을 그린 뒤 인덱스를 확보하고 한 번 더 그린다.
+  if (_ltDateField === 'appr' && (_ltDateFrom || _ltDateTo)) {
+    try {
+      await ltGetApprovalIndex(ltCurrentSys);
+      if (myToken === _ltReqToken) ltRenderPage(1);
+    } catch (e) { console.warn('[관련티켓링크] 결재일 인덱스 확보 실패:', e.message); }
+  }
 }
 let _ltSelected = new Map(); // key: 'SYS:id' -> {sys, title, id}  (모달 안에서 체크 중인 항목)
 let _ltAttached = new Map(); // key: 'SYS:id' -> {sys, title, id}  (실제로 폼에 첨부 확정된 항목)
@@ -2143,15 +2195,27 @@ function ltRenderPage(page) {
   const pagEl = document.getElementById('lt-pagination');
   const kw = (document.getElementById('lt-search-input').value || '').trim().toLowerCase();
   // 제목뿐 아니라 신청자 이메일로도 찾을 수 있게 한다 (예: 'jimmy.lee' 입력 시 해당 신청 건 전부)
-  const filtered = kw
+  let filtered = kw
     ? _ltAllItems.filter(it => ((it.fields.Title || '') + ' ' + (it.fields.RequesterEmail || '')).toLowerCase().includes(kw))
     : _ltAllItems;
+  // 기간 필터 — 문자열 'YYYY-MM-DD' 사전순 비교가 곧 날짜순 비교라 안전하다(둘 다 KST 기준으로 맞춰둠).
+  // 최종 결재일 기준일 때 결재 이력이 없는 건(=아직 아무도 처리 안 함)은 대상에서 제외한다.
+  const dateOn = !!(_ltDateFrom || _ltDateTo);
+  if (dateOn) {
+    filtered = filtered.filter(it => {
+      const d = ltItemDateKey(it);
+      if (!d) return false;
+      if (_ltDateFrom && d < _ltDateFrom) return false;
+      if (_ltDateTo && d > _ltDateTo) return false;
+      return true;
+    });
+  }
   if (!filtered.length) {
     // 기본값으로 '내 결재건'이 켜져 있어서, 결재 이력이 없는 사용자는 이유 없이 빈 목록을 보게 된다.
     // 무엇 때문에 비었는지 알려줘야 체크를 풀 생각을 할 수 있다.
-    const filterOn = _ltMineOnly || _ltAccOnly;
+    const filterOn = _ltMineOnly || _ltAccOnly || dateOn;
     const msg = kw ? '검색 결과가 없습니다'
-      : filterOn ? '조건에 맞는 티켓이 없습니다<br><span style="font-size:.68rem;color:#94a3b8">상단의 결재건 필터를 해제하면 전체를 볼 수 있습니다</span>'
+      : filterOn ? '조건에 맞는 티켓이 없습니다<br><span style="font-size:.68rem;color:#94a3b8">결재건 필터나 기간 조건을 해제하면 범위가 넓어집니다</span>'
       : '표시할 티켓이 없습니다';
     resultsEl.innerHTML = '<div class="lt-empty">' + msg + '</div>';
     pagEl.innerHTML = '';
@@ -2346,6 +2410,16 @@ function ltOpenRealDetail(sys, id) {
       <label class="lt-filter-chip" title="회계담당자 역할의 결재를 거친 건 (담당자 무관)">
         <input type="checkbox" id="lt-acc-only" onchange="ltToggleMineOnly()">ACC팀 결재건
       </label>
+    </div>
+    <div class="lt-daterow">
+      <select id="lt-date-field" onchange="ltApplyDateFilter()" title="어떤 날짜를 기준으로 걸러낼지 선택합니다">
+        <option value="req">신청일</option>
+        <option value="appr">최종 결재일</option>
+      </select>
+      <input type="date" id="lt-date-from" onchange="ltApplyDateFilter()" title="시작일 (이 날짜 포함)">
+      <span class="lt-daterow-tilde">~</span>
+      <input type="date" id="lt-date-to" onchange="ltApplyDateFilter()" title="종료일 (이 날짜 포함)">
+      <span class="lt-date-reset" onclick="ltResetDateFilter()" title="기간 조건 해제">✕ 기간 해제</span>
     </div>
     <div class="lt-results" id="lt-results"><div class="lt-empty">불러오는 중...</div></div>
     <div id="lt-pagination" style="display:flex;justify-content:center;align-items:center;gap:10px;margin-top:10px;font-size:.78rem;color:#64748b"></div>
