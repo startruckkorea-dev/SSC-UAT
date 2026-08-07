@@ -464,7 +464,7 @@ body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #f3f2f1
         <div class="form-group">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <label style="margin:0">상세 내용 <span class="req">*</span></label>
-            <button type="button" class="link-ticket-btn" onclick="openLinkTicketModal()">🔗 관련 티켓(FA, BP, ACC) 링크 추가</button>
+            <button type="button" class="link-ticket-btn" onclick="openLinkTicketModal()">🔗 관련 티켓(ACC, BP, FA) 링크 추가</button>
           </div>
           <textarea id="ssc-detail" style="min-height:110px" placeholder="요청 내용을 구체적으로 기재해주세요. 예) 처리 요청 사항, 관련 문서 번호, 특이사항 등"></textarea>
           <div class="lt-attached" id="lt-attached"></div>
@@ -1902,7 +1902,7 @@ const LT_SYS = {
   BP:  { domain: 'https://bp-master.startruckkorea.com/',     list: 'BP_Requests' },
   ACC: { domain: 'https://acc-voucher.startruckkorea.com/', list: null }, // 프로덕션 — Accounting 담당자 수동변경 기능도 이미 반영되어 있음
 };
-let ltCurrentSys = 'FA';
+let ltCurrentSys = 'ACC';  // 기본 탭 — 탭 노출 순서(ACC → BP → FA)와 일치시킴
 let _accVolListId = null;
 let _ltCfg = null; // system_config_final.xlsx 캐시 (관련 티켓 링크 권한 판단용)
 
@@ -1911,7 +1911,7 @@ function openLinkTicketModal() {
   // 이미 첨부해 둔 티켓은 체크된 상태로 복원 — 모달이 "첨부 목록 편집기" 역할을 하도록
   _ltSelected = new Map(_ltAttached);
   ltUpdateSelectedBar();
-  ltSwitchSys('FA');
+  ltSwitchSys('ACC');
 }
 function closeLinkTicketModal() {
   document.getElementById('link-ticket-modal').classList.remove('open');
@@ -2315,15 +2315,15 @@ function ltOpenRealDetail(sys, id) {
 <div id="link-ticket-modal" onclick="if(event.target===this) closeLinkTicketModal()">
   <div class="lt-card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <div style="font-size:.95rem;font-weight:700;color:#101B34">🔗 관련 티켓(FA, BP, ACC) 링크 추가</div>
+      <div style="font-size:.95rem;font-weight:700;color:#101B34">🔗 관련 티켓(ACC, BP, FA) 링크 추가</div>
       <div style="cursor:pointer;color:#94a3b8;font-size:1.1rem" onclick="closeLinkTicketModal()">✕</div>
     </div>
     <div class="lt-hint">본인이 신청한 티켓만 표시됩니다</div>
     <div class="lt-hint2">체크박스로 선택해 첨부하고, 제목을 클릭하면 해당 시스템의 실제 상세보기가 새 탭에서 열립니다</div>
     <div class="lt-tabs">
-      <div class="lt-tab active" data-sys="FA" onclick="ltSwitchSys('FA')">FA Registration</div>
+      <div class="lt-tab active" data-sys="ACC" onclick="ltSwitchSys('ACC')">ACC Voucher</div>
       <div class="lt-tab" data-sys="BP" onclick="ltSwitchSys('BP')">BP Master</div>
-      <div class="lt-tab" data-sys="ACC" onclick="ltSwitchSys('ACC')">ACC Voucher</div>
+      <div class="lt-tab" data-sys="FA" onclick="ltSwitchSys('FA')">FA Registration</div>
     </div>
     <div style="display:flex;align-items:center;gap:7px;margin-bottom:7px">
       <input type="text" id="lt-search-input" placeholder="제목, 신청자로 검색..." oninput="ltRenderPage(1)" style="flex:1;min-width:0;padding:6px 10px;border:1px solid #d0d7de;border-radius:7px;font-size:.76rem;font-family:inherit">
