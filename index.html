@@ -1907,6 +1907,9 @@ let _accVolListId = null;
 let _ltCfg = null; // system_config_final.xlsx 캐시 (관련 티켓 링크 권한 판단용)
 
 function openLinkTicketModal() {
+  // 결재 세대는 관리자가 세션 도중에도 추가/전환할 수 있으므로, 모달을 열 때마다 결재 인덱스 캐시를 비운다.
+  Object.keys(_ltApprCache).forEach(k => delete _ltApprCache[k]);
+  _accVolListId = null;
   document.getElementById('link-ticket-modal').classList.add('open');
   // 이미 첨부해 둔 티켓은 체크된 상태로 복원 — 모달이 "첨부 목록 편집기" 역할을 하도록
   _ltSelected = new Map(_ltAttached);
@@ -2025,7 +2028,12 @@ async function ltGetApprovalIndex(sys) {
   return _ltApprCache[sys];
 }
 // ACC는 Approvals 리스트가 세대별로 여러 개일 수 있어 전부 모아서 반환
+// ACC 결재 이력은 세대(APR01, APR02...)로 나뉘어 있고 관리자가 언제든 세대를 추가할 수 있다.
+// 세대 목록을 못 읽으면 옛 세대(APR01)만 보게 되어, 새 세대에서 결재한 건이 조용히 누락된다.
+// 그런 상태를 사용자가 모르면 "내 결재건이 왜 없지?"로 이어지므로 불완전 여부를 함께 반환한다.
+let _ltAccVolIncomplete = false;
 async function ltGetAccApprovalListIds() {
+  _ltAccVolIncomplete = false;
   try {
     if (!siteId) { const s = await api('/sites/' + SITE_PATH); siteId = s.id; }
     const drivesRes = await api('/sites/' + siteId + '/drives');
@@ -2038,7 +2046,8 @@ async function ltGetAccApprovalListIds() {
       if (list.length) return list;
     }
   } catch (e) { console.warn('[관련티켓링크] ACC 결재 세대 조회 실패:', e.message); }
-  return ['bf0412d9-6556-46d9-a165-149461a4f286']; // 폴백: 기본 세대(APR01)
+  _ltAccVolIncomplete = true;
+  return ['bf0412d9-6556-46d9-a165-149461a4f286']; // 폴백: 최초 세대(APR01)만 — 결과가 불완전할 수 있음
 }
 // "ACC팀 결재건" 필터를 쓸 수 있는 사람인지 판정.
 // system_config_final.xlsx에 ACC Voucher 담당으로 등록된 사람만 허용한다.
@@ -2108,6 +2117,10 @@ async function ltLoadList() {
       apprFilterLabel = (_ltMineOnly && _ltAccOnly) ? '내 결재건 + ACC팀 결재건이 표시됩니다'
         : _ltMineOnly ? '내가 승인·반려 처리한 티켓만 표시됩니다'
         : 'ACC팀(회계담당) 결재를 거친 티켓만 표시됩니다';
+      // 세대 목록을 못 읽었으면 옛 세대만 훑은 것이라 결과가 빠져 있을 수 있다 — 반드시 알린다
+      if (ltCurrentSys === 'ACC' && _ltAccVolIncomplete) {
+        apprFilterLabel += ' ⚠ 결재 세대 목록을 읽지 못해 일부가 누락됐을 수 있습니다';
+      }
     }
     _ltAllItems = items.sort((a, b) => b.id - a.id);
     const hintEl = document.querySelector('.lt-hint');
