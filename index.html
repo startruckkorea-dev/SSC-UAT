@@ -2098,7 +2098,12 @@ function linkifyTicketRefs(text) {
 }
 // FA/BP/ACC 상세보기 딥링크 URL 생성 — 화면 곳곳에서 같은 규칙을 쓰도록 한 곳으로 모음
 function ltDetailUrl(sys, id) {
-  return LT_SYS[sys].domain + '?openId=' + id;
+  // _v: 캐시 무효화용. GitHub Pages는 HTML에 10분짜리 캐시 헤더를 붙이는데,
+  // 이 링크는 항상 새 탭에서 열리므로 배포 직후에도 브라우저가 옛 HTML을 그대로 재사용해
+  // "분명 배포했는데 화면이 안 바뀐다"는 상황이 반복된다. 분 단위 값이라 같은 분 안에서는
+  // 캐시가 살아 있어 매 클릭마다 재다운로드하지는 않는다.
+  const _v = Math.floor(Date.now() / 60000);
+  return LT_SYS[sys].domain + '?openId=' + id + '&_v=' + _v;
 }
 // 검색 결과 클릭 시 SSC-UAT의 간이 미리보기 대신 실제 FA/BP/ACC 시스템 상세보기를 새 탭에서 바로 열기
 // (해당 시스템은 이미 openId 단독보기 모드가 구현되어 있어, 그 상세팝업만 뜨고 다른 메뉴로는 못 감)
