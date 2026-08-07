@@ -251,16 +251,21 @@ body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #f3f2f1
 .lt-tab.active{background:#0078d4;color:#fff}
 .lt-hint{font-size:.7rem;color:#94a3b8;margin-bottom:2px}
 .lt-hint2{font-size:.68rem;color:#b6c0cc;margin-bottom:8px}
-.lt-results{overflow-y:auto;flex:1;border:1px solid #eef1f5;border-radius:8px}
-.lt-result-row{padding:9px 12px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:.78rem;display:flex;align-items:flex-start;gap:9px}
-.lt-result-row:hover{background:#f0f6ff}
-.lt-result-row:last-child{border-bottom:none}
-.lt-result-row.selected{background:#eaf3fd}
-.lt-chk{margin-top:2px;flex-shrink:0;cursor:pointer;width:15px;height:15px;accent-color:#0078d4}
+/* 결과 목록: 각 항목을 독립된 카드로 분리해 경계를 명확히 한다.
+   (예전엔 얇은 구분선만 있는 촘촘한 행이라 뱃지·날짜가 뒤엉켜 보였음) */
+.lt-results{overflow-y:auto;flex:1;padding:8px;background:#f8fafc;border:1px solid #e6ebf1;border-radius:8px}
+.lt-result-row{padding:11px 13px;margin-bottom:7px;cursor:pointer;font-size:.78rem;display:flex;align-items:flex-start;gap:11px;
+  background:#fff;border:1px solid #e6ebf1;border-radius:8px;transition:border-color .12s,box-shadow .12s}
+.lt-result-row:hover{border-color:#a9cdf0;box-shadow:0 1px 5px rgba(0,120,212,.10)}
+.lt-result-row:last-child{margin-bottom:0}
+.lt-result-row.selected{background:#f3f9ff;border-color:#0078d4;box-shadow:0 0 0 1px #0078d4 inset}
+.lt-chk{margin-top:1px;flex-shrink:0;cursor:pointer;width:15px;height:15px;accent-color:#0078d4}
 .lt-result-body{flex:1;min-width:0}
-.lt-result-title{font-weight:600;color:#0078d4;text-decoration:none;display:block}
+.lt-result-title{font-weight:700;color:#0078d4;text-decoration:none;display:block;font-size:.79rem;line-height:1.45}
 .lt-result-title:hover{text-decoration:underline}
-.lt-result-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px;color:#8a94a6;font-size:.7rem;margin-top:4px}
+/* 메타 정보는 2줄 고정 구조로 — 1줄: 신청자, 2줄: 뱃지 + 날짜. 항목마다 줄이 밀리지 않도록 */
+.lt-result-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px;color:#8a94a6;font-size:.7rem;margin-top:5px}
+.lt-requester{display:block;color:#64748b;font-size:.71rem;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lt-badge{display:inline-block;border-radius:9px;padding:1.5px 8px;font-size:.66rem;font-weight:700}
 .lt-badge-대기{background:#fff4ce;color:#7d5700}
 .lt-badge-승인완료{background:#dff6dd;color:#107c10}
@@ -1973,6 +1978,55 @@ let _ltAllItems = [];
 const LT_PAGE_SIZE = 10;
 let _ltPage = 1;
 let _ltReqToken = 0;
+let _ltMineOnly = false;             // "나의 결재 기록만 보기" 체크 여부
+const _ltMyApprovedCache = {};       // sys -> Set(RequestID)  내가 결재 처리한 건 (탭별 1회만 조회)
+
+// 내가 "결재자로서 처리한" 건의 RequestID 집합을 각 시스템의 *_Approvals 리스트에서 수집.
+// 세 시스템 모두 RequestID / ApproverEmail / Status 필드 구조가 동일하다.
+// ACC만 Approvals가 세대(volume)로 나뉘어 있어 acc_voucher_volumes.json의 모든 세대를 훑는다.
+async function ltGetMyApprovedIds(sys) {
+  if (_ltMyApprovedCache[sys]) return _ltMyApprovedCache[sys];
+  const myEmail = (user?.email || user?.username || '').trim().toLowerCase();
+  const DONE = ['승인', '승인완료', '반려'];   // 아직 '대기'인 건은 "결재한 기록"이 아님
+  const ids = new Set();
+  let listIds = [];
+  if (sys === 'FA') listIds = ['FA_Approvals'];
+  else if (sys === 'BP') listIds = ['BP_Approvals'];
+  else if (sys === 'ACC') listIds = await ltGetAccApprovalListIds();
+  for (const lid of listIds) {
+    try {
+      const res = await apiAll('/sites/' + siteId + '/lists/' + lid + '/items?$expand=fields&$top=500');
+      (res.value || []).forEach(it => {
+        const f = it.fields || {};
+        if ((f.ApproverEmail || '').trim().toLowerCase() === myEmail && DONE.includes(f.Status)) {
+          ids.add(String(f.RequestID));
+        }
+      });
+    } catch (e) { console.warn('[관련티켓링크] 결재이력 조회 실패:', lid, e.message); }
+  }
+  _ltMyApprovedCache[sys] = ids;
+  return ids;
+}
+// ACC는 Approvals 리스트가 세대별로 여러 개일 수 있어 전부 모아서 반환
+async function ltGetAccApprovalListIds() {
+  try {
+    if (!siteId) { const s = await api('/sites/' + SITE_PATH); siteId = s.id; }
+    const drivesRes = await api('/sites/' + siteId + '/drives');
+    const docDrive = (drivesRes.value || []).find(d => ['Documents', '문서', 'Shared Documents'].includes(d.name)) || (drivesRes.value || [])[0];
+    const t = await getToken();
+    const res = await fetch(GRAPH + '/drives/' + docDrive.id + '/root:/acc_voucher_volumes.json:/content', { headers: { Authorization: 'Bearer ' + t } });
+    if (res.ok) {
+      const cfg = await res.json();
+      const list = (cfg.aprVolumes || []).map(v => v.id).filter(Boolean);
+      if (list.length) return list;
+    }
+  } catch (e) { console.warn('[관련티켓링크] ACC 결재 세대 조회 실패:', e.message); }
+  return ['bf0412d9-6556-46d9-a165-149461a4f286']; // 폴백: 기본 세대(APR01)
+}
+function ltToggleMineOnly() {
+  _ltMineOnly = document.getElementById('lt-mine-only').checked;
+  ltLoadList();
+}
 async function ltLoadList() {
   const myToken = ++_ltReqToken;
   const resultsEl = document.getElementById('lt-results');
@@ -1993,10 +2047,19 @@ async function ltLoadList() {
       items = items.filter(it => (it.fields.VoucherType || '') === scope.typeFilter);
     }
     // scope==='all'이면 필터 없이 전체
+    // "나의 결재 기록만 보기"는 권한 필터와 별개로 한 번 더 걸러낸다(권한을 넓히지 않음).
+    let mineOnlyApplied = false;
+    if (_ltMineOnly) {
+      const approvedIds = await ltGetMyApprovedIds(ltCurrentSys);
+      if (myToken !== _ltReqToken) return;
+      items = items.filter(it => approvedIds.has(String(it.id)));
+      mineOnlyApplied = true;
+    }
     _ltAllItems = items.sort((a, b) => b.id - a.id);
     const hintEl = document.querySelector('.lt-hint');
     if (hintEl) {
-      hintEl.textContent = scope.scope === 'all' ? '담당 권한으로 전체 티켓이 표시됩니다'
+      hintEl.textContent = mineOnlyApplied ? '내가 승인·반려 처리한 티켓만 표시됩니다'
+        : scope.scope === 'all' ? '담당 권한으로 전체 티켓이 표시됩니다'
         : scope.scope === 'type' ? scope.typeFilter + ' 담당 권한으로 해당 유형 전체 티켓이 표시됩니다'
         : '본인이 신청한 티켓만 표시됩니다';
     }
@@ -2038,7 +2101,8 @@ function ltRenderPage(page) {
       + '<input type="checkbox" class="lt-chk" ' + checked + ' data-posted="' + (posted ? '1' : '') + '" onclick="event.stopPropagation();ltToggleSelect(\'' + key + '\',\'' + ltCurrentSys + '\',\'' + f.Title.replace(/'/g, "\\'") + '\',' + it.id + ',this)">'
       + '<div class="lt-result-body">'
       + '<a class="lt-result-title" href="' + ltDetailUrl(ltCurrentSys, it.id) + '" target="_blank" rel="noopener" title="실제 시스템 상세보기가 새 탭에서 열립니다 (우클릭 → 링크 주소 복사 가능)">' + f.Title + '<span class="lt-open-hint">상세보기 ↗</span></a>'
-      + '<div class="lt-result-meta">' + (f.RequesterEmail || '') + statusBadge + typeBadge + dateStr + '</div>'
+      + '<span class="lt-requester">' + (f.RequesterEmail || '-') + '</span>'
+      + '<div class="lt-result-meta">' + statusBadge + typeBadge + dateStr + '</div>'
       + '</div>' + postingBadge + '</div>';
   }).join('');
   pagEl.innerHTML = totalPages <= 1 ? '' :
@@ -2184,7 +2248,13 @@ function ltOpenRealDetail(sys, id) {
       <div class="lt-tab" data-sys="BP" onclick="ltSwitchSys('BP')">BP Master</div>
       <div class="lt-tab" data-sys="ACC" onclick="ltSwitchSys('ACC')">ACC Voucher</div>
     </div>
-    <input type="text" id="lt-search-input" placeholder="제목으로 검색..." oninput="ltRenderPage(1)" style="padding:7px 10px;border:1px solid #d0d7de;border-radius:7px;font-size:.8rem;font-family:inherit;margin-bottom:8px">
+    <div style="display:flex;align-items:center;gap:9px;margin-bottom:8px">
+      <input type="text" id="lt-search-input" placeholder="제목으로 검색..." oninput="ltRenderPage(1)" style="flex:1;min-width:0;padding:7px 10px;border:1px solid #d0d7de;border-radius:7px;font-size:.8rem;font-family:inherit">
+      <label id="lt-mine-wrap" title="내가 결재자로 지정되어 승인·반려 처리한 건만 표시합니다" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:.75rem;color:#475569;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:7px;padding:7px 11px;white-space:nowrap;user-select:none">
+        <input type="checkbox" id="lt-mine-only" onchange="ltToggleMineOnly()" style="cursor:pointer;width:14px;height:14px;accent-color:#0078d4;margin:0">
+        나의 결재 기록만 보기
+      </label>
+    </div>
     <div class="lt-results" id="lt-results"><div class="lt-empty">불러오는 중...</div></div>
     <div id="lt-pagination" style="display:flex;justify-content:center;align-items:center;gap:10px;margin-top:10px;font-size:.78rem;color:#64748b"></div>
     <div class="lt-actions">
