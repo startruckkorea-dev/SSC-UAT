@@ -279,6 +279,14 @@ body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #f3f2f1
 .lt-date-reset{font-size:.7rem;color:#64748b;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:7px;
   padding:5px 9px;cursor:pointer;white-space:nowrap;user-select:none}
 .lt-date-reset:hover{background:#e2e8f0;color:#334155}
+/* 상태 필터 — 현재 목록에 실제로 존재하는 상태만 칩으로 노출 */
+.lt-statusrow{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:7px}
+.lt-statusrow:empty{display:none}
+.lt-status-chip{font-size:.7rem;border:1px solid #e2e8f0;background:#fff;color:#64748b;border-radius:20px;
+  padding:4px 11px;cursor:pointer;user-select:none;white-space:nowrap;transition:all .12s}
+.lt-status-chip:hover{border-color:#a9cdf0}
+.lt-status-chip.on{background:#0078d4;border-color:#0078d4;color:#fff;font-weight:700}
+.lt-status-cnt{font-size:.64rem;opacity:.75;margin-left:3px}
 /* 검색줄의 필터 체크박스 */
 .lt-filter-chip{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:.7rem;color:#475569;background:#f1f5f9;
   border:1px solid #e2e8f0;border-radius:7px;padding:6px 9px;white-space:nowrap;user-select:none}
@@ -2157,6 +2165,7 @@ function closeLinkTicketModal() {
 }
 function ltSwitchSys(sys) {
   ltCurrentSys = sys;
+  _ltStatusSel.clear();   // 시스템마다 상태 분포가 달라 이전 선택을 끌고 가지 않는다
   document.querySelectorAll('.lt-tab').forEach(t => t.classList.toggle('active', t.dataset.sys === sys));
   ltLoadList();
 }
@@ -2317,6 +2326,42 @@ function ltResetDateFilter() {
   _ltDateFrom = ''; _ltDateTo = '';
   ltRenderPage(1);
 }
+// ── 상태 필터 (승인완료 / 대기 / 반려 / 철회 …) ─────────────────────────
+// 시스템별로 남는 상태값이 조금씩 다를 수 있으므로 목록을 고정하지 않고,
+// 현재 불러온 데이터에 실제로 존재하는 상태만 칩으로 만들어 보여준다.
+let _ltStatusSel = new Set();   // 비어 있으면 전체
+const LT_STATUS_ORDER = ['대기', '승인완료', '반려', '철회', '철회(잠김)'];
+function ltRenderStatusChips() {
+  const row = document.getElementById('lt-status-row');
+  if (!row) return;
+  const counts = {};
+  _ltAllItems.forEach(it => {
+    const s = (it.fields.Status || '').trim();
+    if (s) counts[s] = (counts[s] || 0) + 1;
+  });
+  const keys = Object.keys(counts).sort((a, b) => {
+    const ia = LT_STATUS_ORDER.indexOf(a), ib = LT_STATUS_ORDER.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  });
+  if (!keys.length) { row.innerHTML = ''; return; }
+  // 선택된 상태가 이번 목록에 없으면(탭 전환 등) 정리해서 "결과 0건"을 방지
+  [..._ltStatusSel].forEach(s => { if (!counts[s]) _ltStatusSel.delete(s); });
+  row.innerHTML =
+    '<span class="lt-status-chip' + (_ltStatusSel.size === 0 ? ' on' : '') + '" onclick="ltClearStatusFilter()">전체'
+      + '<span class="lt-status-cnt">' + _ltAllItems.length + '</span></span>'
+    + keys.map(s =>
+        '<span class="lt-status-chip' + (_ltStatusSel.has(s) ? ' on' : '') + '" onclick="ltToggleStatus(\'' + s.replace(/'/g, "\\'") + '\')">'
+        + s + '<span class="lt-status-cnt">' + counts[s] + '</span></span>'
+      ).join('');
+}
+function ltToggleStatus(s) {
+  if (_ltStatusSel.has(s)) _ltStatusSel.delete(s); else _ltStatusSel.add(s);
+  ltRenderPage(1);
+}
+function ltClearStatusFilter() {
+  _ltStatusSel.clear();
+  ltRenderPage(1);
+}
 // 항목의 비교 기준 날짜를 KST 기준 'YYYY-MM-DD'로 반환 (없으면 null)
 function ltItemDateKey(it) {
   if (_ltDateField === 'appr') {
@@ -2429,6 +2474,7 @@ async function ltLoadList() {
         : scope.scope === 'type' ? scope.typeFilter + ' 담당 권한으로 해당 유형 전체 티켓이 표시됩니다'
         : '본인이 신청한 티켓만 표시됩니다';
     }
+    ltRenderStatusChips();   // 이번 목록에 존재하는 상태로 칩을 다시 구성
     ltRenderPage(1);
   } catch (e) {
     if (myToken !== _ltReqToken) return;
@@ -2455,6 +2501,10 @@ function ltRenderPage(page) {
     : _ltAllItems;
   // 기간 필터 — 문자열 'YYYY-MM-DD' 사전순 비교가 곧 날짜순 비교라 안전하다(둘 다 KST 기준으로 맞춰둠).
   // 최종 결재일 기준일 때 결재 이력이 없는 건(=아직 아무도 처리 안 함)은 대상에서 제외한다.
+  // 상태 필터 — 선택된 상태가 하나도 없으면 전체
+  if (_ltStatusSel.size) {
+    filtered = filtered.filter(it => _ltStatusSel.has((it.fields.Status || '').trim()));
+  }
   const dateOn = !!(_ltDateFrom || _ltDateTo);
   if (dateOn) {
     filtered = filtered.filter(it => {
@@ -2468,7 +2518,7 @@ function ltRenderPage(page) {
   if (!filtered.length) {
     // 기본값으로 '내 결재건'이 켜져 있어서, 결재 이력이 없는 사용자는 이유 없이 빈 목록을 보게 된다.
     // 무엇 때문에 비었는지 알려줘야 체크를 풀 생각을 할 수 있다.
-    const filterOn = _ltMineOnly || _ltAccOnly || dateOn;
+    const filterOn = _ltMineOnly || _ltAccOnly || dateOn || _ltStatusSel.size > 0;
     const msg = kw ? '검색 결과가 없습니다'
       : filterOn ? '조건에 맞는 티켓이 없습니다<br><span style="font-size:.68rem;color:#94a3b8">결재건 필터나 기간 조건을 해제하면 범위가 넓어집니다</span>'
       : '표시할 티켓이 없습니다';
@@ -2676,6 +2726,7 @@ function ltOpenRealDetail(sys, id) {
       <input type="date" id="lt-date-to" onchange="ltApplyDateFilter()" title="종료일 (이 날짜 포함)">
       <span class="lt-date-reset" onclick="ltResetDateFilter()" title="기간 조건 해제">✕ 기간 해제</span>
     </div>
+    <div class="lt-statusrow" id="lt-status-row"></div>
     <div class="lt-results" id="lt-results"><div class="lt-empty">불러오는 중...</div></div>
     <div id="lt-pagination" style="display:flex;justify-content:center;align-items:center;gap:10px;margin-top:10px;font-size:.78rem;color:#64748b"></div>
     <div class="lt-actions">
