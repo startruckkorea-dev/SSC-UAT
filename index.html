@@ -285,8 +285,10 @@ body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #f3f2f1
 .lt-status-chip{font-size:.7rem;border:1px solid #e2e8f0;background:#fff;color:#64748b;border-radius:20px;
   padding:4px 11px;cursor:pointer;user-select:none;white-space:nowrap;transition:all .12s}
 .lt-status-chip:hover{border-color:#a9cdf0}
-.lt-status-chip.on{background:#0078d4;border-color:#0078d4;color:#fff;font-weight:700}
-.lt-status-cnt{font-size:.64rem;opacity:.75;margin-left:3px}
+.lt-status-chip.on{background:#0078d4;border-color:#0078d4;color:#fff;font-weight:700;box-shadow:0 1px 4px rgba(0,120,212,.28)}
+.lt-status-chip.on::before{content:'✓ ';font-weight:700}
+.lt-status-cnt{display:inline-block;font-size:.63rem;font-weight:700;margin-left:5px;padding:1px 6px;border-radius:10px;background:#eef2f6;color:#64748b}
+.lt-status-chip.on .lt-status-cnt{background:rgba(255,255,255,.25);color:#fff}
 /* 검색줄의 필터 체크박스 */
 .lt-filter-chip{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:.7rem;color:#475569;background:#f1f5f9;
   border:1px solid #e2e8f0;border-radius:7px;padding:6px 9px;white-space:nowrap;user-select:none}
@@ -2349,6 +2351,7 @@ async function ltApplyDateFilter() {
     if (el) el.innerHTML = '<div class="lt-empty">결재 이력을 확인하는 중...</div>';
     await ltGetApprovalIndex(ltCurrentSys);
   }
+  ltRenderStatusChips();   // 기간이 바뀌면 상태별 건수도 달라진다
   ltRenderPage(1);
 }
 function ltResetDateFilter() {
@@ -2356,6 +2359,7 @@ function ltResetDateFilter() {
   document.getElementById('lt-date-from').value = '';
   document.getElementById('lt-date-to').value = '';
   _ltDateFrom = ''; _ltDateTo = '';
+  ltRenderStatusChips();
   ltRenderPage(1);
 }
 // ── 상태 필터 (승인완료 / 대기 / 반려 / 철회 …) ─────────────────────────
@@ -2363,11 +2367,37 @@ function ltResetDateFilter() {
 // 현재 불러온 데이터에 실제로 존재하는 상태만 칩으로 만들어 보여준다.
 let _ltStatusSel = new Set();   // 비어 있으면 전체
 const LT_STATUS_ORDER = ['대기', '승인완료', '반려', '철회', '철회(잠김)'];
+// 상태 칩의 건수는 "상태를 제외한 나머지 조건(기간·검색어·결재건)을 적용한 결과" 기준으로 센다.
+// 전체 목록 기준으로 세면 화면에 보이는 건수와 칩 숫자가 어긋난다.
+function ltStatusBaseItems() {
+  const kwEl = document.getElementById('lt-search-input');
+  const kw = (kwEl?.value || '').trim().toLowerCase();
+  let base = _ltAllItems;
+  if (kw) base = base.filter(it => ((it.fields.Title || '') + ' ' + (it.fields.RequesterEmail || '')).toLowerCase().includes(kw));
+  if (_ltDateFrom || _ltDateTo) {
+    base = base.filter(it => {
+      const d = ltItemDateKey(it);
+      if (!d) return false;
+      if (_ltDateFrom && d < _ltDateFrom) return false;
+      if (_ltDateTo && d > _ltDateTo) return false;
+      return true;
+    });
+  }
+  if (_ltMineOnly || _ltAccOnly) {
+    const idx = _ltApprCache[ltCurrentSys];
+    if (idx) base = base.filter(it => {
+      const rid = String(it.id);
+      return (_ltMineOnly && idx.mine.has(rid)) || (_ltAccOnly && idx.acc.has(rid));
+    });
+  }
+  return base;
+}
 function ltRenderStatusChips() {
   const row = document.getElementById('lt-status-row');
   if (!row) return;
+  const base = ltStatusBaseItems();
   const counts = {};
-  _ltAllItems.forEach(it => {
+  base.forEach(it => {
     const s = (it.fields.Status || '').trim();
     if (s) counts[s] = (counts[s] || 0) + 1;
   });
@@ -2376,11 +2406,11 @@ function ltRenderStatusChips() {
     return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
   });
   if (!keys.length) { row.innerHTML = ''; return; }
-  // 선택된 상태가 이번 목록에 없으면(탭 전환 등) 정리해서 "결과 0건"을 방지
+  // 선택된 상태가 이번 범위에 없으면(탭 전환·기간 변경 등) 정리해서 "결과 0건"을 방지
   [..._ltStatusSel].forEach(s => { if (!counts[s]) _ltStatusSel.delete(s); });
   row.innerHTML =
     '<span class="lt-status-chip' + (_ltStatusSel.size === 0 ? ' on' : '') + '" onclick="ltClearStatusFilter()">전체'
-      + '<span class="lt-status-cnt">' + _ltAllItems.length + '</span></span>'
+      + '<span class="lt-status-cnt">' + base.length + '</span></span>'
     + keys.map(s =>
         '<span class="lt-status-chip' + (_ltStatusSel.has(s) ? ' on' : '') + '" onclick="ltToggleStatus(\'' + s.replace(/'/g, "\\'") + '\')">'
         + s + '<span class="lt-status-cnt">' + counts[s] + '</span></span>'
@@ -2388,10 +2418,12 @@ function ltRenderStatusChips() {
 }
 function ltToggleStatus(s) {
   if (_ltStatusSel.has(s)) _ltStatusSel.delete(s); else _ltStatusSel.add(s);
+  ltRenderStatusChips();   // 선택 표시(파란 채움)를 즉시 반영 — 예전엔 목록만 다시 그려 칩이 그대로였다
   ltRenderPage(1);
 }
 function ltClearStatusFilter() {
   _ltStatusSel.clear();
+  ltRenderStatusChips();
   ltRenderPage(1);
 }
 // 항목의 비교 기준 날짜를 KST 기준 'YYYY-MM-DD'로 반환 (없으면 null)
@@ -2767,7 +2799,7 @@ function ltOpenRealDetail(sys, id) {
       <div class="lt-tab" data-sys="FA" onclick="ltSwitchSys('FA')">FA Registration</div>
     </div>
     <div style="display:flex;align-items:center;gap:7px;margin-bottom:7px">
-      <input type="text" id="lt-search-input" placeholder="제목, 신청자로 검색..." oninput="ltRenderPage(1)" style="flex:1;min-width:0;padding:6px 10px;border:1px solid #d0d7de;border-radius:7px;font-size:.76rem;font-family:inherit">
+      <input type="text" id="lt-search-input" placeholder="제목, 신청자로 검색..." oninput="ltRenderStatusChips();ltRenderPage(1)" style="flex:1;min-width:0;padding:6px 10px;border:1px solid #d0d7de;border-radius:7px;font-size:.76rem;font-family:inherit">
       <label class="lt-filter-chip" title="내가 결재자로서 승인·반려 처리한 건">
         <input type="checkbox" id="lt-mine-only" checked onchange="ltToggleMineOnly()">내 결재건
       </label>
