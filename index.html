@@ -1982,12 +1982,21 @@ async function ltGetScope(sys) {
   if (adminSp.includes(myEmail)) return { scope: 'all' }; // ADMIN_SP_N — 전체 시스템 전부 열람 가능
 
   if (sys === 'FA') {
-    const accountants = ltCfgEmails(cfg, 'FA_ACCOUNTANT');
-    if (accountants.includes(myEmail)) return { scope: 'all' };
+    // FA_ADMIN_N(관리자)과 FA_ACCOUNTANT(회계담당) → 전체 열람
+    const faAll = [...ltCfgEmails(cfg, 'FA_ADMIN'), ...ltCfgEmails(cfg, 'FA_ACCOUNTANT')];
+    if (faAll.includes(myEmail)) return { scope: 'all' };
   } else if (sys === 'BP') {
-    const approvers = [...ltCfgEmails(cfg, 'BP_VENDOR_APPROVER'), ...ltCfgEmails(cfg, 'BP_CUSTOMER_APPROVER')];
-    if (approvers.includes(myEmail)) return { scope: 'all' };
+    // BP_ADMIN_N(관리자)과 Vendor/Customer 승인자 → 전체 열람
+    const bpAll = [...ltCfgEmails(cfg, 'BP_ADMIN'), ...ltCfgEmails(cfg, 'BP_VENDOR_APPROVER'), ...ltCfgEmails(cfg, 'BP_CUSTOMER_APPROVER')];
+    if (bpAll.includes(myEmail)) return { scope: 'all' };
   } else if (sys === 'ACC') {
+    // ACC-Voucher_ADMIN_N(관리자)과 IT 담당은 전표 유형과 무관하게 전체 열람.
+    // "ACC팀 결재건" 체크박스를 켤 수 있는 조건(ltCanUseAccFilter)과 동일한 기준을 쓴다 —
+    // 예전엔 체크박스는 ADMIN을 인정하는데 열람 범위는 AP/AR/GL만 봐서,
+    // 관리자인데도 필터를 켜면 결과가 비는 어긋남이 있었다.
+    const accAdmins = [...ltCfgEmails(cfg, 'ACC-Voucher_ADMIN'), ...ltCfgEmails(cfg, 'ACC-Voucher_IT')];
+    if (accAdmins.includes(myEmail)) return { scope: 'all' };
+    // 관리자가 아니면서 특정 유형 담당자로만 등록된 경우에는 해당 유형만
     for (const t of ['AP', 'AR', 'GL']) {
       const list = ltCfgEmails(cfg, 'ACC-Voucher_' + t);
       if (list.includes(myEmail)) return { scope: 'type', typeFilter: t };
