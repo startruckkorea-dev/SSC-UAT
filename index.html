@@ -1114,14 +1114,18 @@ async function submitTicket() {
     });
 
     // Step 3: 나머지 필드 개별 PATCH (Rich Text / multi-line)
+    // 참조는 전용 컬럼(RelatedTickets)에 분리 저장한다. 컬럼을 만들지 못한 경우에만
+    // 예전 방식(Detail 뒤 토큰 덧붙이기)으로 되돌려 참조가 유실되지 않게 한다.
+    const _colOk = _ltAttached.size ? await ltEnsureRelatedColumn() : true;
     const extraFields = {
       TicketTitle:  title,
       PostingDate:  postDate,
       DocDate:      docDate,
       ReverseDate:  document.getElementById('ssc-reverse-date').value || null,
-      Detail:       '<div>'+detail+ltRefBlock()+'</div>',
+      Detail:       '<div>'+detail+(_colOk ? '' : ltRefBlock())+'</div>',
       PKFAssignees: selectedPKF.map(p=>p.email).join('; '),
     };
+    if (_colOk && _ltAttached.size) extraFields.RelatedTickets = ltRefValue();
     for (const [key,val] of Object.entries(extraFields)) {
       if (val == null) continue;
       try { await api('/sites/'+siteId+'/lists/'+sscReq()+'/items/'+reqId,'PATCH',{fields:{[key]:val}}); }
@@ -1321,7 +1325,7 @@ async function exportAdminExcel(){
     if(filterSearch) items=items.filter(i=>(i.fields.RequesterEmail||'').toLowerCase().includes(filterSearch)||(i.fields.TicketTitle||i.fields.Title||'').toLowerCase().includes(filterSearch));
     if(!items.length){loading(false);showAlert('내보낼 데이터가 없습니다.','','⚠️');return;}
     logAction('SSC', 'Excel 내보내기', { 건수: items.length, 필터: { 상태: filterStatus||'전체', 유형: filterType||'전체', 검색어: filterSearch||'' } });
-    const headers=['번호','신청자','Title(티켓번호)','유형','요청구분','PKF담당자','우선순위','상태','제목','상세 내용','Posting Date','Doc Date','Reverse Date','등록일','접수일','처리 완료일','결재 의견'];
+    const headers=['번호','신청자','Title(티켓번호)','유형','요청구분','PKF담당자','우선순위','상태','제목','상세 내용','관련 티켓','Posting Date','Doc Date','Reverse Date','등록일','접수일','처리 완료일','결재 의견'];
     const fmtComments = raw => {
       let arr=[]; try{ arr=JSON.parse(raw||'[]'); }catch(e){ return ''; }
       if(!arr.length) return '';
@@ -1341,6 +1345,15 @@ async function exportAdminExcel(){
         f.Status||'',
         f.TicketTitle||'',
         stripHtml(f.Detail||''),
+        // 관련 티켓: 전용 컬럼 우선, 없으면 예전 방식(Detail 토큰)에서 뽑아낸다
+        (()=>{
+          const src = f.RelatedTickets || f.Detail || '';
+          const out = [];
+          const re = /\[([^:\]]+):(FA|BP|ACC):(\d+)\]/g;
+          let m;
+          while ((m = re.exec(String(src))) !== null) out.push(m[1]);
+          return out.join(', ');
+        })(),
         fmtDateOnly(f.PostingDate),
         fmtDateOnly(f.DocDate),
         fmtDateOnly(f.ReverseDate),
@@ -1352,7 +1365,7 @@ async function exportAdminExcel(){
     })];
     const ws=XLSX.utils.aoa_to_sheet(rows);
     // 열 너비 설정 — 상세 내용/결재 의견은 넉넉히 확보해 잘림 없이 다 보이도록
-    ws['!cols']=[{wch:6},{wch:28},{wch:28},{wch:8},{wch:25},{wch:22},{wch:10},{wch:10},{wch:32},{wch:50},{wch:12},{wch:12},{wch:12},{wch:16},{wch:16},{wch:16},{wch:60}];
+    ws['!cols']=[{wch:6},{wch:28},{wch:28},{wch:8},{wch:25},{wch:22},{wch:10},{wch:10},{wch:32},{wch:50},{wch:34},{wch:12},{wch:12},{wch:12},{wch:16},{wch:16},{wch:16},{wch:60}];
     ws['!rows']=rows.map((_,i)=>i===0?{hpx:22}:{hpx:60});
     ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:0,c:0},e:{r:rows.length-1,c:headers.length-1}})};
     const wb=XLSX.utils.book_new();
@@ -1464,6 +1477,9 @@ async function showDetail(reqId, fromTab) {
       row('Doc Date', fmtDateOnly(f.DocDate)) +
       row('Reverse Date', fmtDateOnly(f.ReverseDate)||'-') +
       row('상세 내용', linkifyTicketRefs(f.Detail), true) +
+      // 관련 티켓은 전용 컬럼(RelatedTickets)에서 읽어 별도 항목으로 표시.
+      // 전용 컬럼 도입 이전에 저장된 건은 Detail 안 토큰이 그대로 링크로 변환되므로 함께 보인다.
+      (f.RelatedTickets ? row('관련 티켓', linkifyTicketRefs(f.RelatedTickets), true) : '') +
       (()=>{
         const pkfNames = stripHtml(f.PKFAssignees||'').split(';').map(p=>{const parts=p.trim().split('||');return parts[0]?(parts[0].trim()+(parts[1]?' ('+parts[1].trim()+')':'')):p.trim();}).filter(Boolean).join('\n')||'-';
         const _editableStatus = ['대기','처리중'];
@@ -2622,6 +2638,33 @@ function ltRemoveAttached(key) {
   ltRenderAttached();
 }
 // 제출 시 Detail 본문 뒤에 붙일 참조 토큰 블록 생성 (첨부가 없으면 빈 문자열)
+// ── 관련 티켓 참조 전용 컬럼 (RelatedTickets) ─────────────────────────────
+// 예전에는 참조를 Detail 본문 뒤에 [제목:SYS:id] 토큰으로 덧붙여 저장했다.
+// 그런데 SSC-UAT는 프로덕션(shared-sc)과 같은 SharePoint 리스트를 쓰기 때문에,
+// 변환 로직이 없는 프로덕션 화면과 Excel 내보내기에 토큰이 그대로 노출됐다.
+// 이를 해소하기 위해 참조는 전용 컬럼에 분리 저장하고 Detail은 사용자 입력만 남긴다.
+let _ltColEnsured = false;
+async function ltEnsureRelatedColumn() {
+  if (_ltColEnsured) return true;
+  try {
+    const cols = await api('/sites/' + siteId + '/lists/' + sscReq() + '/columns');
+    if (!(cols.value || []).some(c => c.name === 'RelatedTickets')) {
+      await api('/sites/' + siteId + '/lists/' + sscReq() + '/columns', 'POST', {
+        name: 'RelatedTickets', text: { allowMultipleLines: true, textType: 'plain' }
+      });
+    }
+    _ltColEnsured = true;
+    return true;
+  } catch (e) {
+    console.warn('[관련티켓링크] RelatedTickets 컬럼 확인/생성 실패:', e.message);
+    return false;   // 실패 시 저장을 막지 않고 Detail 토큰 방식으로 되돌린다(하위 호환)
+  }
+}
+// 저장 형식: 한 줄에 하나씩 [제목:SYS:id]
+function ltRefValue() {
+  if (!_ltAttached.size) return '';
+  return [..._ltAttached.values()].map(({ sys, title, id }) => '[' + title + ':' + sys + ':' + id + ']').join('\n');
+}
 function ltRefBlock() {
   if (!_ltAttached.size) return '';
   const lines = [..._ltAttached.values()].map(({ sys, title, id }) => '[' + title + ':' + sys + ':' + id + ']');
