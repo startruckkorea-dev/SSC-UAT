@@ -2043,9 +2043,9 @@ async function ltGetApprovalIndex(sys) {
   return _ltApprCache[sys];
 }
 // ── 기간 필터 (신청일 / 최종 결재일) ──────────────────────────────────────
-// 기본값: 최종 결재일 기준, 오늘로부터 최근 30일
+// 기본값: 신청일 기준, 오늘로부터 최근 30일
 const LT_DEFAULT_DAYS = 30;
-let _ltDateField = 'appr';  // 'req' = 신청일, 'appr' = 최종 결재일
+let _ltDateField = 'req';   // 'req' = 신청일, 'appr' = 최종 결재일
 let _ltDateFrom = '', _ltDateTo = '';
 // KST 기준 'YYYY-MM-DD' (offsetDays 만큼 과거로 이동). 서버 시각이 UTC라 보정 없이 계산하면 하루가 밀린다.
 function ltKstDate(offsetDays = 0) {
@@ -2054,7 +2054,7 @@ function ltKstDate(offsetDays = 0) {
 }
 // 모달을 열 때마다 기본 기간을 다시 채운다(날짜가 바뀌어도 항상 '오늘 기준 최근 30일'이 되도록)
 function ltInitDateFilter() {
-  _ltDateField = 'appr';
+  _ltDateField = 'req';
   _ltDateTo = ltKstDate(0);
   _ltDateFrom = ltKstDate(LT_DEFAULT_DAYS - 1); // 오늘 포함 30일
   const fEl = document.getElementById('lt-date-field');
