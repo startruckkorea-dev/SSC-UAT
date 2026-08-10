@@ -1920,6 +1920,7 @@ function openLinkTicketModal() {
   // 결재 세대는 관리자가 세션 도중에도 추가/전환할 수 있으므로, 모달을 열 때마다 결재 인덱스 캐시를 비운다.
   Object.keys(_ltApprCache).forEach(k => delete _ltApprCache[k]);
   _accVolListId = null;
+  ltInitDateFilter();
   document.getElementById('link-ticket-modal').classList.add('open');
   // 이미 첨부해 둔 티켓은 체크된 상태로 복원 — 모달이 "첨부 목록 편집기" 역할을 하도록
   _ltSelected = new Map(_ltAttached);
@@ -2042,8 +2043,27 @@ async function ltGetApprovalIndex(sys) {
   return _ltApprCache[sys];
 }
 // ── 기간 필터 (신청일 / 최종 결재일) ──────────────────────────────────────
-let _ltDateField = 'req';   // 'req' = 신청일, 'appr' = 최종 결재일
+// 기본값: 최종 결재일 기준, 오늘로부터 최근 30일
+const LT_DEFAULT_DAYS = 30;
+let _ltDateField = 'appr';  // 'req' = 신청일, 'appr' = 최종 결재일
 let _ltDateFrom = '', _ltDateTo = '';
+// KST 기준 'YYYY-MM-DD' (offsetDays 만큼 과거로 이동). 서버 시각이 UTC라 보정 없이 계산하면 하루가 밀린다.
+function ltKstDate(offsetDays = 0) {
+  const d = new Date(Date.now() + 9 * 3600 * 1000 - offsetDays * 86400 * 1000);
+  return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+}
+// 모달을 열 때마다 기본 기간을 다시 채운다(날짜가 바뀌어도 항상 '오늘 기준 최근 30일'이 되도록)
+function ltInitDateFilter() {
+  _ltDateField = 'appr';
+  _ltDateTo = ltKstDate(0);
+  _ltDateFrom = ltKstDate(LT_DEFAULT_DAYS - 1); // 오늘 포함 30일
+  const fEl = document.getElementById('lt-date-field');
+  const sEl = document.getElementById('lt-date-from');
+  const eEl = document.getElementById('lt-date-to');
+  if (fEl) fEl.value = _ltDateField;
+  if (sEl) sEl.value = _ltDateFrom;
+  if (eEl) eEl.value = _ltDateTo;
+}
 // 최종 결재일 기준으로 바꾸면 결재 이력이 필요하므로, 그때만 인덱스를 확보한다.
 async function ltApplyDateFilter() {
   _ltDateField = document.getElementById('lt-date-field').value;
@@ -2057,6 +2077,7 @@ async function ltApplyDateFilter() {
   ltRenderPage(1);
 }
 function ltResetDateFilter() {
+  // 기간만 비우고 기준(신청일/최종 결재일) 선택은 그대로 둔다 — 전체 기간을 보고 싶을 때 쓰는 버튼
   document.getElementById('lt-date-from').value = '';
   document.getElementById('lt-date-to').value = '';
   _ltDateFrom = ''; _ltDateTo = '';
