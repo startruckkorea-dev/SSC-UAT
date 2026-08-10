@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SSC</title>
+<!-- 상세 내용 PDF 출력용 (FA Registration과 동일 구성) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <script>
 (function(){
   var l=document.createElement('link');
@@ -600,7 +603,13 @@ body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #f3f2f1
 <div id="detail-modal" onclick="if(event.target===this)closeModal()">
   <div class="modal-box">
     <button class="modal-close" onclick="closeModal()">×</button>
-    <div class="modal-title">티켓 상세 내용</div>
+    <div class="modal-title" style="display:flex;align-items:center;justify-content:space-between">
+      <span>티켓 상세 내용</span>
+      <button id="btn-export-pdf" onclick="exportSscDetailPdf()" title="상세내용 PDF 출력" style="display:none;background:#0078d4;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:.75rem;font-weight:600;cursor:pointer;font-family:inherit;align-items:center;gap:5px;transition:all .15s" onmouseover="this.style.background='#005a9e'" onmouseout="this.style.background='#0078d4'">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        PDF 출력
+      </button>
+    </div>
     <div id="modal-content"></div>
   </div>
 </div>
@@ -1575,8 +1584,220 @@ async function showDetail(reqId, fromTab) {
     document.getElementById('detail-modal').classList.add('show');
     window._curReqId = reqId;
     window._curDetailTab = fromTab;
+    // PDF 출력 버튼 노출 + 파일명 구성에 쓸 정보 보관 (FA Registration과 동일 방식)
+    window._sscCurrentDetail = { requestId: reqId, title: f.Title || '', requesterEmail: f.RequesterEmail || '' };
+    const _pdfBtn = document.getElementById('btn-export-pdf');
+    if (_pdfBtn) _pdfBtn.style.display = 'flex';
   } catch(e){ alert('조회 오류: '+e.message); }
   finally{ loading(false); }
+}
+
+// 티켓 상세 내용 PDF 출력 — FA Registration의 구현을 그대로 이식.
+// 상세 영역을 html2canvas로 캡처해 A4 페이지로 분할하고, 첨부파일은 pdf-lib으로 병합한다.
+// 이미지 첨부는 직접 삽입, Office/PDF 첨부는 Graph API의 PDF 변환을 거쳐 붙인다.
+async function exportSscDetailPdf() {
+  const btn = document.getElementById('btn-export-pdf');
+  const orig = btn.innerHTML;
+  btn.innerHTML = '⏳ 생성 중...'; btn.disabled = true;
+
+  try {
+    const { PDFDocument } = PDFLib;
+    const contentEl = document.getElementById('modal-content');
+    const _bannerNow = new Date();
+    const _ds = '출력일시: ' + _bannerNow.toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'}) + ' ' + _bannerNow.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Seoul'});
+
+    // 입력용 UI(의견 입력란·등록 버튼, PKF 담당자 변경 버튼)는 출력물에 불필요하므로 캡처 중에만 숨긴다.
+    // 내부 스크롤로 잘리는 영역(결재 이력 등)도 펼쳐서 전체가 담기도록 한 뒤 원복한다.
+    const _hidden = [];
+    contentEl.querySelectorAll('#ssc-comment-text, #modal-content button, .pkf-change-btn').forEach(el => {
+      _hidden.push([el, el.style.display]);
+      el.style.display = 'none';
+    });
+    const _restore = [];
+    contentEl.querySelectorAll('[style*="overflow-y"], [style*="max-height"]').forEach(el => {
+      _restore.push([el, el.getAttribute('style')]);
+      el.style.maxHeight = 'none';
+      el.style.overflow = 'visible';
+    });
+
+    let cvs;
+    try {
+      cvs = await html2canvas(contentEl, {scale:2,useCORS:true,allowTaint:true,backgroundColor:'#fff',scrollY:0,windowWidth:700});
+    } finally {
+      // 캡처 성공 여부와 무관하게 화면을 반드시 원래대로 되돌린다
+      _hidden.forEach(([el, d]) => { el.style.display = d; });
+      _restore.forEach(([el, s]) => { if (s === null) el.removeAttribute('style'); else el.setAttribute('style', s); });
+    }
+
+    const mainDoc = await PDFDocument.create();
+
+    function makeHdrPng(left, right) {
+      const hc = document.createElement('canvas');
+      hc.width = 1190; hc.height = 28;
+      const hx = hc.getContext('2d');
+      const g = hx.createLinearGradient(0,0,hc.width,0);
+      g.addColorStop(0,'#1F4E79'); g.addColorStop(1,'#3b7dc4');
+      hx.fillStyle=g; hx.fillRect(0,0,hc.width,hc.height);
+      hx.fillStyle='#3b82f6'; hx.fillRect(0,hc.height-2,hc.width,2);
+      hx.fillStyle='#fff';
+      hx.font='500 13px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';
+      hx.textBaseline='middle'; hx.fillText(left,14,13);
+      hx.textAlign='right'; hx.font='400 12px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';
+      hx.fillStyle='rgba(255,255,255,.6)'; hx.fillText(right,hc.width-14,13);
+      return hc.toDataURL('image/png');
+    }
+    async function dataUrlToUint8(dataUrl) {
+      const res = await fetch(dataUrl);
+      const ab = await res.arrayBuffer();
+      return new Uint8Array(ab);
+    }
+
+    const A4W = 595, A4H = 842;
+    const marginPt = 34, hdrH = 22;
+    const printW_pt = A4W - marginPt*2;
+    const printableH_pt = A4H - marginPt*2 - hdrH;
+    const pxPerPt = cvs.width / A4W;
+    const sliceH_px = Math.round(printableH_pt * pxPerPt);
+    const numPages = Math.ceil(cvs.height / sliceH_px);
+
+    const hdrDataUrl = makeHdrPng('STK SSC · Shared Service Center 티켓 상세', _ds);
+    const hdrBytes = await dataUrlToUint8(hdrDataUrl);
+
+    for(let i = 0; i < numPages; i++) {
+      const page = mainDoc.addPage([A4W, A4H]);
+      const hdrImg = await mainDoc.embedPng(hdrBytes);
+      page.drawImage(hdrImg, {x:0, y:A4H-hdrH, width:A4W, height:hdrH});
+
+      const srcY = i * sliceH_px;
+      const sliceActual_px = Math.min(sliceH_px, cvs.height - srcY);
+      const sliceActual_pt = sliceActual_px / pxPerPt;
+
+      const sliceCanvas = document.createElement('canvas');
+      sliceCanvas.width = cvs.width;
+      sliceCanvas.height = sliceActual_px;
+      sliceCanvas.getContext('2d').drawImage(cvs, 0, srcY, cvs.width, sliceActual_px, 0, 0, cvs.width, sliceActual_px);
+
+      const sliceData = sliceCanvas.toDataURL('image/jpeg', 0.92);
+      const sliceBytes = await dataUrlToUint8(sliceData);
+      const sliceImg = await mainDoc.embedJpg(sliceBytes);
+
+      page.drawImage(sliceImg, {
+        x: marginPt,
+        y: A4H - hdrH - marginPt - sliceActual_pt,
+        width: printW_pt,
+        height: sliceActual_pt
+      });
+    }
+
+    // ── 첨부파일 처리 (이미지는 직접 삽입, Office/PDF는 Graph API로 PDF 변환 후 병합) ──
+    // 신형(.file-dl-link: driveId+itemId 직접 저장)과 구형(.file-legacy-link: webUrl/경로만 저장) 두 포맷 모두 지원
+    const _t = await getToken();
+    const newLinks = Array.from(contentEl.querySelectorAll('.file-dl-link')).map(link => ({
+      name: decodeURIComponent(link.dataset.name || ''),
+      driveId: decodeURIComponent(link.dataset.drive || ''),
+      itemId: decodeURIComponent(link.dataset.id || ''),
+    }));
+    let legacyDrive = null;
+    const legacyLinksRaw = Array.from(contentEl.querySelectorAll('.file-legacy-link'));
+    const legacyLinks = [];
+    for (const link of legacyLinksRaw) {
+      const name = decodeURIComponent(link.dataset.name || '');
+      const relPath = decodeURIComponent(link.getAttribute('data-path') || '');
+      if (!name || !relPath) continue;
+      try {
+        if (!legacyDrive) {
+          const drivesData = await api('/sites/' + siteId + '/drives');
+          legacyDrive = drivesData.value.find(d => d.name === 'AttachedFiles') || drivesData.value[0];
+        }
+        const drivePath = relPath.replace(/^AttachedFiles\//, '');
+        const meta = await api('/drives/' + legacyDrive.id + '/root:/' + encodeURIComponent(drivePath).replace(/%2F/g, '/'));
+        legacyLinks.push({ name, driveId: legacyDrive.id, itemId: meta.id });
+      } catch(e) { console.warn('구형 첨부파일 조회 실패:', name, e.message); }
+    }
+    const fileLinks = [...newLinks, ...legacyLinks];
+
+    for(const link of fileLinks) {
+      const name = link.name;
+      if(!name) continue;
+      const dId = link.driveId;
+      const iId = link.itemId;
+      if(!dId || !iId) continue;
+      const ext = name.split('.').pop().toLowerCase();
+      const imgExts = ['jpg','jpeg','png','gif','webp'];
+
+      btn.innerHTML = '⏳ ' + name.substring(0,20) + '...';
+
+      try {
+        if(imgExts.includes(ext)) {
+          const res = await fetch('https://graph.microsoft.com/v1.0/drives/'+dId+'/items/'+iId+'/content', {headers:{Authorization:'Bearer '+_t}});
+          if(!res.ok) throw new Error(res.status);
+          const imgAb = await res.arrayBuffer();
+          const attachPage = mainDoc.addPage([A4W, A4H]);
+          const aHdrFn = makeHdrPng('첨부파일: '+name, _ds);
+          const aHdrBytes = await dataUrlToUint8(aHdrFn);
+          const aHdrImg = await mainDoc.embedPng(aHdrBytes);
+          attachPage.drawImage(aHdrImg, {x:0, y:A4H-hdrH, width:A4W, height:hdrH});
+          let embImg;
+          if(['jpg','jpeg'].includes(ext)) embImg = await mainDoc.embedJpg(new Uint8Array(imgAb));
+          else embImg = await mainDoc.embedPng(new Uint8Array(imgAb));
+          const {width:iW, height:iH} = embImg;
+          const ratio = Math.min(printW_pt/iW, (A4H-hdrH-marginPt*2)/iH);
+          attachPage.drawImage(embImg, {
+            x: marginPt,
+            y: A4H - hdrH - marginPt - iH*ratio,
+            width: iW*ratio, height: iH*ratio
+          });
+        } else {
+          const convertUrl = ext === 'pdf'
+            ? 'https://graph.microsoft.com/v1.0/drives/'+dId+'/items/'+iId+'/content'
+            : 'https://graph.microsoft.com/v1.0/drives/'+dId+'/items/'+iId+'/content?format=pdf';
+          const res = await fetch(convertUrl, {headers:{Authorization:'Bearer '+_t}});
+          if(!res.ok) throw new Error('변환실패 '+res.status);
+          const pdfBytes = new Uint8Array(await res.arrayBuffer());
+
+          const srcDoc = await PDFDocument.load(pdfBytes, {ignoreEncryption:true});
+          const copiedPages = await mainDoc.copyPages(srcDoc, srcDoc.getPageIndices());
+
+          const aHdrFn2 = makeHdrPng('첨부파일: '+name, _ds);
+          const aHdrBytes2 = await dataUrlToUint8(aHdrFn2);
+
+          for(const pg of copiedPages) {
+            mainDoc.addPage(pg);
+            const aHdrImg2 = await mainDoc.embedPng(aHdrBytes2);
+            const {width:pgW, height:pgH} = pg.getSize();
+            pg.drawImage(aHdrImg2, {x:0, y:pgH-hdrH, width:pgW, height:hdrH});
+          }
+        }
+      } catch(e) {
+        console.warn('첨부파일 처리 실패:', name, e.message);
+        const errPage = mainDoc.addPage([A4W, A4H]);
+        const aHdrFn3 = makeHdrPng('첨부파일: '+name+' (변환 실패)', _ds);
+        const aHdrBytes3 = await dataUrlToUint8(aHdrFn3);
+        const aHdrImg3 = await mainDoc.embedPng(aHdrBytes3);
+        errPage.drawImage(aHdrImg3, {x:0, y:A4H-hdrH, width:A4W, height:hdrH});
+      }
+    }
+
+    // ── 최종 저장 ──
+    const finalBytes = await mainDoc.save();
+    const finalBlob = new Blob([finalBytes], {type:'application/pdf'});
+    const info = window._sscCurrentDetail || {};
+    const reqEmail = (info.requesterEmail||'unknown').replace(/[^a-z0-9]/gi,'_');
+    const _tno = (info.title||('req'+(info.requestId||''))).replace(/[^a-z0-9_-]/gi,'_');
+    const saveFileName = 'SSC_'+_tno+'_'+reqEmail+'_'+new Date(new Date().getTime()+9*3600*1000).toISOString().substring(0,10)+'.pdf';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(finalBlob);
+    a.download = saveFileName;
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1500);
+
+  } catch(e) {
+    alert('PDF 생성 오류: ' + e.message);
+    console.error(e);
+  } finally {
+    btn.innerHTML = orig;
+    btn.disabled = false;
+  }
 }
 
 // ── 업무 처리 의견 등록 (SSC_Requests.AdminComments 필드 사용) ──
@@ -1624,7 +1845,11 @@ function decodeSpHtml(v) {
   s = s.replace(/&quot;/g,'"').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&nbsp;/g,' ').replace(/&#39;/g,"'").replace(/&apos;/g,"'");
   return s.trim();
 }
-function closeModal(){ document.getElementById('detail-modal').classList.remove('show'); }
+function closeModal(){
+  document.getElementById('detail-modal').classList.remove('show');
+  const _pdfBtn = document.getElementById('btn-export-pdf');
+  if (_pdfBtn) _pdfBtn.style.display = 'none';
+}
 
 // ══ PKF 담당자 변경 ══
 function showPKFChangeModal(reqId) {
