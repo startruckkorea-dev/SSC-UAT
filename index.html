@@ -1122,14 +1122,30 @@ async function submitTicket() {
       PostingDate:  postDate,
       DocDate:      docDate,
       ReverseDate:  document.getElementById('ssc-reverse-date').value || null,
-      Detail:       '<div>'+detail+(_colOk ? '' : ltRefBlock())+'</div>',
+      Detail:       '<div>'+detail+'</div>',   // 참조는 아래에서 RelatedTickets로 분리 저장
       PKFAssignees: selectedPKF.map(p=>p.email).join('; '),
     };
-    if (_colOk && _ltAttached.size) extraFields.RelatedTickets = ltRefValue();
     for (const [key,val] of Object.entries(extraFields)) {
       if (val == null) continue;
       try { await api('/sites/'+siteId+'/lists/'+sscReq()+'/items/'+reqId,'PATCH',{fields:{[key]:val}}); }
       catch(e){ console.warn('Field skip:',key,e.message); }
+    }
+    // 참조 저장은 별도로 처리한다.
+    // 위 반복문은 실패해도 조용히 건너뛰는 구조라, 그대로 맡기면 RelatedTickets 저장이 실패했을 때
+    // Detail에도 토큰이 없어 참조가 통째로 사라진다. 실패하면 예전 방식으로 되살린다.
+    if (_ltAttached.size) {
+      let _refSaved = false;
+      if (_colOk) {
+        try {
+          await api('/sites/'+siteId+'/lists/'+sscReq()+'/items/'+reqId,'PATCH',{fields:{ RelatedTickets: ltRefValue() }});
+          _refSaved = true;
+        } catch(e){ console.warn('[관련티켓링크] RelatedTickets 저장 실패, Detail 방식으로 대체:', e.message); }
+      }
+      if (!_refSaved) {
+        try {
+          await api('/sites/'+siteId+'/lists/'+sscReq()+'/items/'+reqId,'PATCH',{fields:{ Detail: '<div>'+detail+ltRefBlock()+'</div>' }});
+        } catch(e){ console.warn('[관련티켓링크] 참조 저장 최종 실패:', e.message); }
+      }
     }
 
     // Step 4: 파일 업로드
