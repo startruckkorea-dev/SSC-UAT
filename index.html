@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SSC</title>
+<title>SSC</title><!-- aps-uiunify 10-07 -->
 <!-- 상세 내용 PDF 출력용 (FA Registration과 동일 구성) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
@@ -1571,7 +1571,7 @@ async function loadMyList() {
         '<td>'+fmtDate(f.RequestDate)+'</td>'+
         '<td style="text-align:center">'+wdBtn(item.id, f.Status)+'</td>'+
       '</tr>';
-    }, '등록된 티켓이 없습니다.', 10);
+    }, '신청 내역이 없습니다.', 10);
   } catch(e) { dynLoad(false); document.getElementById('list-body').innerHTML='<tr><td colspan="8" style="color:#a4262c;text-align:center">'+e.message+'</td></tr>'; }
 }
 
